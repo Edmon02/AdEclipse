@@ -2,6 +2,14 @@
  * AdEclipse - YouTube Main World Patch
  * Runs in MAIN world to sanitize YouTube player payloads before ad UI is built.
  * Also provides MAIN-world player API access for direct ad skipping.
+ *
+ * Interception layers (each catches what the others might miss):
+ *   1. JSON.parse          – catches ALL deserialized JSON globally
+ *   2. Response.prototype.json – catches fetch().json() calls
+ *   3. fetch() wrapper     – catches YouTubei API fetch responses
+ *   4. XHR wrapper         – catches YouTubei API XHR responses
+ *   5. ytInitialPlayerResponse / ytInitialData property traps
+ *   6. MAIN-world player API skip (MutationObserver + poll fallback)
  */
 (function() {
   'use strict';
@@ -9,7 +17,9 @@
   if (window.__ADECLIPSE_YT_MAINWORLD__) return;
   window.__ADECLIPSE_YT_MAINWORLD__ = true;
 
-  const AD_KEYS = [
+  /* ── Fixed ad key set (fast O(1) lookup) ───────────────────────── */
+
+  const AD_KEYS = new Set([
     'adPlacements',
     'playerAds',
     'adSlots',
@@ -28,7 +38,6 @@
     'instreamVideoAdRenderer',
     'linearAdSequenceRenderer',
     'adSignalsInfo',
-    // Additional keys for modern YouTube ad payloads
     'adBreakServiceRenderer',
     'adSlotRenderer',
     'adBreakRenderer',
@@ -52,9 +61,12 @@
     'adHoverTextButtonRenderer',
     'adInfoDialogRenderer',
     'adReasonRenderer'
-  ];
+  ]);
 
-  // Keys whose array children should be scanned for ad renderer items
+  // Regex catches any FUTURE ad keys YouTube may add
+  const AD_KEY_PATTERN = /^(?:ad[A-Z]|playerAd)|(?:Ad(?:Renderer|Module|Layout|Config|Slot|Break|Placement|Overlay)$)/;
+
+  // Patterns for filtering ad renderer items out of content arrays
   const AD_RENDERER_PATTERNS = [
     'adSlotRenderer',
     'promotedSparkles',
@@ -67,48 +79,52 @@
     'searchPyv'
   ];
 
-  const isTargetYoutubeiRequest = (url) => (
-    url.includes('/youtubei/v1/player') ||
-    url.includes('/youtubei/v1/next') ||
-    url.includes('/youtubei/v1/reel/reel_watch_sequence') ||
-    url.includes('/youtubei/v1/browse') ||
-    url.includes('/youtubei/v1/ad_break')
-  );
+  /* ── Core cleansing function ───────────────────────────────────── */
 
-  const cleanseObject = (obj, seen = new WeakSet()) => {
+  const cleanseObject = (obj, seen) => {
     if (!obj || typeof obj !== 'object') return obj;
+    if (!seen) seen = new WeakSet();
     if (seen.has(obj)) return obj;
     seen.add(obj);
 
     if (Array.isArray(obj)) {
-      for (const item of obj) cleanseObject(item, seen);
+      for (let i = 0; i < obj.length; i++) cleanseObject(obj[i], seen);
       return obj;
     }
 
-    // Delete known ad keys
-    for (const key of AD_KEYS) {
-      if (key in obj) delete obj[key];
+    const keys = Object.keys(obj);
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
+      // Fixed set check (O(1)) + regex check (catches future keys)
+      if (AD_KEYS.has(key) || AD_KEY_PATTERN.test(key)) {
+        delete obj[key];
+      }
     }
 
+    // Empty arrays that might have survived deletion
     if (Array.isArray(obj.adPlacements)) obj.adPlacements = [];
     if (Array.isArray(obj.playerAds)) obj.playerAds = [];
 
     // Filter ad renderer items out of content arrays
     const ARRAY_KEYS = ['contents', 'items', 'results', 'richItems'];
-    for (const arrKey of ARRAY_KEYS) {
+    for (let a = 0; a < ARRAY_KEYS.length; a++) {
+      const arrKey = ARRAY_KEYS[a];
       if (Array.isArray(obj[arrKey])) {
         obj[arrKey] = obj[arrKey].filter(function(item) {
           if (!item || typeof item !== 'object') return true;
-          var itemKeys = Object.keys(item);
-          return !itemKeys.some(function(k) {
-            return AD_RENDERER_PATTERNS.some(function(pat) {
-              return k.includes(pat);
-            });
-          });
+          const itemKeys = Object.keys(item);
+          for (let j = 0; j < itemKeys.length; j++) {
+            const k = itemKeys[j];
+            for (let p = 0; p < AD_RENDERER_PATTERNS.length; p++) {
+              if (k.includes(AD_RENDERER_PATTERNS[p])) return false;
+            }
+          }
+          return true;
         });
       }
     }
 
+    // Remove ad-caused playability errors
     if (obj.playabilityStatus && typeof obj.playabilityStatus === 'object') {
       const reason = String(obj.playabilityStatus.reason || '').toLowerCase();
       if (obj.playabilityStatus.status === 'ERROR' && reason.includes('ad')) {
@@ -116,12 +132,57 @@
       }
     }
 
-    for (const value of Object.values(obj)) {
-      cleanseObject(value, seen);
+    // Recurse into remaining values
+    const values = Object.values(obj);
+    for (let i = 0; i < values.length; i++) {
+      cleanseObject(values[i], seen);
     }
 
     return obj;
   };
+
+  /* ── Layer 1: JSON.parse interception ──────────────────────────── */
+  // This is the most comprehensive layer. ALL YouTube JSON (initial page data,
+  // fetch responses, XHR responses) goes through JSON.parse. By cleansing here,
+  // no ad data ever reaches YouTube's code regardless of transport mechanism.
+
+  const patchJsonParse = () => {
+    const originalParse = JSON.parse;
+    JSON.parse = function(text, reviver) {
+      const result = originalParse.call(this, text, reviver);
+      if (result && typeof result === 'object') {
+        cleanseObject(result);
+      }
+      return result;
+    };
+    // Preserve identity
+    JSON.parse.toString = () => 'function parse() { [native code] }';
+  };
+
+  /* ── Layer 2: Response.prototype.json interception ─────────────── */
+  // Catches fetch(...).then(r => r.json()) before YouTube reads it.
+
+  const patchResponseJson = () => {
+    const originalJson = Response.prototype.json;
+    Response.prototype.json = async function() {
+      const result = await originalJson.call(this);
+      if (result && typeof result === 'object') {
+        cleanseObject(result);
+      }
+      return result;
+    };
+  };
+
+  /* ── Layer 3: fetch() wrapper ──────────────────────────────────── */
+  // Specifically targets YouTubei API endpoints for full response replacement.
+
+  const isTargetYoutubeiRequest = (url) => (
+    url.includes('/youtubei/v1/player') ||
+    url.includes('/youtubei/v1/next') ||
+    url.includes('/youtubei/v1/reel/reel_watch_sequence') ||
+    url.includes('/youtubei/v1/browse') ||
+    url.includes('/youtubei/v1/ad_break')
+  );
 
   const cloneHeaders = (headers) => {
     const next = new Headers();
@@ -135,49 +196,6 @@
     statusText: origin.statusText,
     headers: cloneHeaders(origin.headers)
   });
-
-  const patchInitialResponse = () => {
-    try {
-      if (window.ytInitialPlayerResponse) {
-        cleanseObject(window.ytInitialPlayerResponse);
-      }
-    } catch (_) {}
-    try {
-      if (window.ytInitialData) {
-        cleanseObject(window.ytInitialData);
-      }
-    } catch (_) {}
-  };
-
-  const patchInitialPlayerResponseSetter = () => {
-    try {
-      let current = window.ytInitialPlayerResponse;
-      Object.defineProperty(window, 'ytInitialPlayerResponse', {
-        configurable: true,
-        get() {
-          return current;
-        },
-        set(value) {
-          current = cleanseObject(value);
-        }
-      });
-    } catch (_) {}
-  };
-
-  const patchInitialDataSetter = () => {
-    try {
-      let currentData = window.ytInitialData;
-      Object.defineProperty(window, 'ytInitialData', {
-        configurable: true,
-        get() {
-          return currentData;
-        },
-        set(value) {
-          currentData = cleanseObject(value);
-        }
-      });
-    } catch (_) {}
-  };
 
   const patchFetch = () => {
     const originalFetch = window.fetch;
@@ -198,6 +216,8 @@
       }
     };
   };
+
+  /* ── Layer 4: XHR wrapper ──────────────────────────────────────── */
 
   const patchXhr = () => {
     const originalOpen = XMLHttpRequest.prototype.open;
@@ -232,23 +252,60 @@
     };
   };
 
-  /* ── MAIN-world player API ad skipper ──────────────────────────── */
+  /* ── Layer 5: Property traps for initial page data ─────────────── */
+
+  const patchInitialResponse = () => {
+    try {
+      if (window.ytInitialPlayerResponse) {
+        cleanseObject(window.ytInitialPlayerResponse);
+      }
+    } catch (_) {}
+    try {
+      if (window.ytInitialData) {
+        cleanseObject(window.ytInitialData);
+      }
+    } catch (_) {}
+  };
+
+  const patchInitialPlayerResponseSetter = () => {
+    try {
+      let current = window.ytInitialPlayerResponse;
+      Object.defineProperty(window, 'ytInitialPlayerResponse', {
+        configurable: true,
+        get() { return current; },
+        set(value) { current = cleanseObject(value); }
+      });
+    } catch (_) {}
+  };
+
+  const patchInitialDataSetter = () => {
+    try {
+      let currentData = window.ytInitialData;
+      Object.defineProperty(window, 'ytInitialData', {
+        configurable: true,
+        get() { return currentData; },
+        set(value) { currentData = cleanseObject(value); }
+      });
+    } catch (_) {}
+  };
+
+  /* ── Layer 6: MAIN-world player API ad skipper (fallback) ──────── */
+  // If any ad data still leaks through, this provides instant skip via
+  // YouTube's own internal player API methods (only accessible in MAIN world).
 
   const installMainWorldAdSkipper = () => {
     const trySkip = () => {
       try {
-        var player = document.getElementById('movie_player');
+        const player = document.getElementById('movie_player');
         if (!player) return;
 
-        // These methods exist on YouTube's internal player API (MAIN world only)
         if (typeof player.skipAd === 'function') player.skipAd();
         if (typeof player.cancelPlayback === 'function') player.cancelPlayback();
 
-        // Access internal player API for ad-specific control
         if (typeof player.getVideoData === 'function') {
-          var vd = player.getVideoData();
+          const vd = player.getVideoData();
           if (vd && vd.isAd) {
-            var video = player.querySelector('video');
+            const video = player.querySelector('video');
             if (video && Number.isFinite(video.duration) && video.duration > 0 && video.duration < 300) {
               if (typeof player.seekTo === 'function') {
                 player.seekTo(video.duration, true);
@@ -260,13 +317,12 @@
     };
 
     const watchPlayer = () => {
-      var player = document.getElementById('movie_player');
+      const player = document.getElementById('movie_player');
       if (!player) {
         setTimeout(watchPlayer, 100);
         return;
       }
 
-      // Observe class changes for ad state
       new MutationObserver(function() {
         if (player.classList.contains('ad-showing') ||
             player.classList.contains('ad-interrupting')) {
@@ -274,7 +330,6 @@
         }
       }).observe(player, { attributes: true, attributeFilter: ['class'] });
 
-      // Also poll for reliability
       setInterval(function() {
         if (player.classList.contains('ad-showing') ||
             player.classList.contains('ad-interrupting')) {
@@ -291,7 +346,11 @@
   };
 
   /* ── Bootstrap ─────────────────────────────────────────────────── */
+  // Order matters: JSON.parse + Response.json FIRST (global coverage),
+  // then property traps, then transport-specific patches, then fallback skipper.
 
+  patchJsonParse();
+  patchResponseJson();
   patchInitialResponse();
   patchInitialPlayerResponseSetter();
   patchInitialDataSetter();
