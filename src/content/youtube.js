@@ -249,6 +249,18 @@
       video.addEventListener('playing', resetIfNeeded, true);
       video.addEventListener('loadeddata', resetIfNeeded, true);
       video.addEventListener('timeupdate', resetIfNeeded, true);
+
+      // Autoplay: the ad-skip sequence often leaves the real video paused.
+      // Wait briefly for the real video to load, then trigger play.
+      var ensurePlay = function () {
+        if (playerInAdMode(player)) return;
+        if (video.paused && video.readyState >= 2) {
+          video.play().catch(function () {});
+        }
+      };
+      setTimeout(ensurePlay, 100);
+      setTimeout(ensurePlay, 300);
+      setTimeout(ensurePlay, 800);
     }
 
     adHandling = false;
@@ -315,6 +327,10 @@
           var targetTime = getUrlStartTime();
           video.currentTime = targetTime;
           wasInAdMode = false;
+        }
+        // Ensure autoplay after ad skip
+        if (video.paused && video.readyState >= 2) {
+          video.play().catch(function () {});
         }
       }
     }, true);
