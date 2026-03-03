@@ -34,7 +34,8 @@
 
 ### 🔒 Privacy
 - **No Data Collection**: All processing happens locally
-- **No External Requests**: No telemetry or analytics
+- **No Telemetry**: No analytics, tracking pixels, or user profiling
+- **Local-First Operation**: Blocking and detection run on-device (optional rule updates can be fetched when auto-update is enabled)
 - **On-Device ML**: Optional TensorFlow.js-based ad detection runs entirely in your browser
 
 ### 📊 Features Overview
@@ -152,8 +153,8 @@ AdEclipse/
 ├── icons/
 │   └── *.png               # Extension icons
 └── tests/
-    ├── unit/               # Unit tests
-    └── integration/        # Integration tests
+  ├── setup.js            # Jest setup
+  └── unit/               # Unit tests
 ```
 
 ---
@@ -238,7 +239,7 @@ Create a new content script or add selectors to `rules/site-selectors.json`:
 
 | Mode | Description |
 |------|-------------|
-| Standard | Balanced blocking with performance optimization |
+| Balanced | Recommended default with performance optimization |
 | Aggressive | Maximum blocking, may affect some content |
 | Light | Essential ads only, less intrusive |
 
@@ -247,9 +248,9 @@ Create a new content script or add selectors to `rules/site-selectors.json`:
 | Setting | Default | Description |
 |---------|---------|-------------|
 | Auto-skip | On | Automatically skip skippable ads |
-| Speed up | On | Play unskippable ads at 16x speed |
+| Skip/End Ad Handling | On | Seeks ad playback to end and triggers skip when available |
 | Mute | On | Mute ads during playback |
-| Skip delay | 500ms | Delay before auto-skip activates |
+| Overlay Cleanup | On | Removes YouTube ad overlays and promoted UI elements |
 
 ### Performance Settings
 
@@ -267,43 +268,37 @@ Create a new content script or add selectors to `rules/site-selectors.json`:
 
 ```javascript
 // Get current settings
-chrome.runtime.sendMessage({ type: 'getSettings' }, (response) => {
-  console.log(response);
-});
+const settings = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
 
 // Update settings
-chrome.runtime.sendMessage({
-  type: 'saveSettings',
-  settings: { enabled: true, blockingMode: 'standard' }
+await chrome.runtime.sendMessage({
+  type: 'UPDATE_SETTINGS',
+  data: { enabled: true, mode: 'balanced' }
 });
 
 // Get statistics
-chrome.runtime.sendMessage({ type: 'getStats' }, (stats) => {
-  console.log(`Blocked: ${stats.blocked}`);
-});
+const stats = await chrome.runtime.sendMessage({ type: 'GET_STATS' });
+console.log(`Blocked today: ${stats.today.adsBlocked}`);
 
 // Record blocked ad
-chrome.runtime.sendMessage({
-  type: 'blocked',
-  adType: 'video',
-  domain: 'youtube.com'
+await chrome.runtime.sendMessage({
+  type: 'INCREMENT_BLOCKED',
+  data: { type: 'videoAd', domain: 'youtube.com' }
 });
 ```
 
 ### Content Script API
 
 ```javascript
-// Check if site is whitelisted
-const isWhitelisted = await chrome.runtime.sendMessage({
-  type: 'isWhitelisted',
-  domain: window.location.hostname
+// Get site state for current page
+const siteState = await chrome.runtime.sendMessage({
+  type: 'GET_SITE_ENABLED'
 });
 
-// Report ad element
-chrome.runtime.sendMessage({
-  type: 'reportAd',
-  selector: '.detected-ad',
-  url: window.location.href
+// Request selectors for hostname
+const selectors = await chrome.runtime.sendMessage({
+  type: 'GET_SELECTORS',
+  data: { hostname: window.location.hostname }
 });
 ```
 
@@ -337,11 +332,11 @@ chrome.runtime.sendMessage({
 
 | Browser | Version | Status |
 |---------|---------|--------|
-| Chrome | 102+ | ✅ Full support |
-| Edge | 102+ | ✅ Full support |
+| Chrome | 111+ | ✅ Full support |
+| Edge | 111+ | ✅ Full support |
 | Firefox | 109+ | ✅ Full support |
 | Brave | Latest | ✅ Full support |
-| Opera | 90+ | ✅ Full support |
+| Opera | 97+ | ✅ Full support |
 | Safari | - | ❌ Not supported |
 
 ---
@@ -372,7 +367,8 @@ We welcome contributions! Here's how to get started:
 AdEclipse is committed to user privacy:
 
 - **No data collection**: We don't collect any user data
-- **No external requests**: Everything runs locally in your browser
+- **No telemetry or tracking**: We don't profile users or collect browsing analytics
+- **Local-first processing**: Blocking happens in-browser (rule updates may fetch from configured sources when enabled)
 - **No tracking**: We don't track your browsing history
 - **Open source**: Full transparency in how your data is handled
 
