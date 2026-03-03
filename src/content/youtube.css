@@ -1,0 +1,148 @@
+/* AdEclipse - YouTube Ad Hiding Styles */
+
+/*
+ * CRITICAL: Hide the <video> element itself while the player is in ad mode.
+ * YouTube toggles "ad-showing" / "ad-interrupting" on #movie_player.
+ * This makes ad frames invisible INSTANTLY (zero visual ad content).
+ * The real video becomes visible the moment YouTube removes the class.
+ */
+/*
+ * CRITICAL: Hide the <video> element + spinner while the player is in ad mode.
+ * YouTube toggles "ad-showing" / "ad-interrupting" on #movie_player.
+ * This makes ad frames invisible INSTANTLY (zero visual ad content).
+ * The real video becomes visible the moment YouTube removes the class.
+ */
+#movie_player.ad-showing video,
+#movie_player.ad-interrupting video,
+#movie_player.ad-showing .ytp-ad-player-overlay-flyout-cta,
+#movie_player.ad-interrupting .ytp-ad-player-overlay-flyout-cta {
+  visibility: hidden !important;
+}
+
+#movie_player.ad-showing .ytp-spinner,
+#movie_player.ad-showing .ytp-spinner-container,
+#movie_player.ad-interrupting .ytp-spinner,
+#movie_player.ad-interrupting .ytp-spinner-container {
+  display: none !important;
+}
+
+/* User-reported ad elements */
+.ad-simple-attributed-string,
+.ytp-ad-badge__text--clean-player,
+#player-overlay\:0,
+#player-overlay-layout\:0 {
+  display: none !important;
+  visibility: hidden !important;
+}
+
+/* Immediate hiding of known ad overlay / UI elements */
+.ytp-ad-module,
+.ytp-ad-overlay-slot,
+.ytp-ad-text-overlay,
+.ytp-ad-image-overlay,
+.ytp-ad-player-overlay,
+.ytp-ad-player-overlay-layout,
+.ytp-ad-player-overlay-instream-info,
+.ytp-ad-player-overlay-skip-or-preview,
+.ytp-ad-action-interstitial-slot,
+.ytp-ad-action-interstitial-background-container,
+.video-ads,
+.ytp-ad-progress-list,
+.ytp-ad-progress,
+.ytp-ad-persistent-progress-bar-container,
+.ytp-ad-preview-container,
+.ytp-ad-preview-text,
+.ytp-ad-simple-ad-badge,
+.ytp-ad-visit-advertiser-button,
+.ytp-flyout-cta,
+.ytp-suggested-action,
+.ytp-suggested-action-badge,
+.ytp-visit-advertiser-link {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  height: 0 !important;
+  width: 0 !important;
+  overflow: hidden !important;
+  pointer-events: none !important;
+}
+
+/* Hide banner / masthead / feed ads */
+#masthead-ad,
+#masthead-ad-control,
+ytd-display-ad-renderer,
+ytd-in-feed-ad-layout-renderer,
+ytd-ad-slot-renderer,
+ytd-rich-item-renderer:has(ytd-ad-slot-renderer),
+ytd-rich-section-renderer:has(ytd-ad-slot-renderer),
+ytd-item-section-renderer:has(ytd-ad-slot-renderer),
+#player-ads,
+ytd-companion-slot-renderer,
+ytd-action-companion-ad-renderer,
+ytd-promoted-sparkles-web-renderer,
+ytd-promoted-sparkles-text-search-renderer,
+ytd-compact-promoted-video-renderer,
+ytd-promoted-video-renderer,
+ytd-search-pyv-renderer,
+ytd-video-masthead-ad-v3-renderer,
+ytd-player-legacy-desktop-watch-ads-renderer,
+ytd-movie-offer-module-renderer,
+ytd-brand-video-singleton-renderer,
+ytd-brand-video-shelf-renderer,
+[layout="DISPLAY_AD_LAYOUT_TOP_LANDSCAPE_IMAGE"],
+ytd-banner-promo-renderer,
+ytd-statement-banner-renderer,
+ytd-primetime-promo-renderer {
+  display: none !important;
+}
+
+/* Hide merch and upsells */
+ytd-merch-shelf-renderer,
+ytd-mealbar-promo-renderer,
+yt-mealbar-promo-renderer,
+ytd-ticket-shelf-renderer,
+#offer-module,
+ytm-companion-slot {
+  display: none !important;
+}
+
+/* Hide related / sidebar promoted */
+#related ytd-compact-promoted-video-renderer,
+#secondary ytd-ad-slot-renderer,
+#secondary ytd-compact-promoted-video-renderer,
+.ytd-watch-flexy #secondary-inner ytd-ad-slot-renderer {
+  display: none !important;
+}
+
+/* Hide premium upsell dialogs */
+tp-yt-paper-dialog:has(.ytd-enforcement-message-view-model),
+ytd-enforcement-message-view-model,
+tp-yt-paper-dialog:has([class*="premium"]),
+.ytd-popup-container:has([class*="premium"]) {
+  display: none !important;
+}
+
+/* Hide Shorts ads */
+ytd-reel-video-renderer:has(.ytd-ad-slot-renderer),
+ytd-reel-item-renderer[is-ad] {
+  display: none !important;
+}
+
+/* Hide ad badges / labels */
+.ytd-thumbnail-overlay-toggle-button-renderer[aria-label='Ad'],
+.badge-style-type-ad,
+[badge-style="BADGE_STYLE_TYPE_AD"],
+span.ytd-badge-supported-renderer:has(> .badge-style-type-ad) {
+  display: none !important;
+}
+
+/* Hide tracking pixels */
+img[src*="doubleclick"],
+img[src*="googlesyndication"],
+img[src*="googleadservices"],
+img[src*="google-analytics"],
+img[src*="/pagead/"] {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}

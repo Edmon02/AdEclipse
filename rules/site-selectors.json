@@ -1,0 +1,449 @@
+{
+  "version": "1.0.0",
+  "lastUpdated": "2026-03-02",
+  "updateUrl": "https://raw.githubusercontent.com/adeclipse/rules/main/site-selectors.json",
+  
+  "youtube": {
+    "enabled": true,
+    "description": "YouTube ad elements",
+    "selectors": {
+      "videoAds": [
+        ".ytp-ad-module",
+        ".ytp-ad-player-overlay",
+        ".ytp-ad-player-overlay-instream-info",
+        ".ytp-ad-player-overlay-layout",
+        ".ytp-ad-player-overlay-skip-or-preview",
+        ".ytp-ad-skip-button-container",
+        ".ytp-ad-skip-button",
+        ".ytp-ad-skip-button-modern",
+        ".ytp-ad-preview-container",
+        ".ytp-ad-preview-text",
+        ".ytp-ad-persistent-progress-bar-container",
+        ".ytp-ad-progress-list",
+        ".ytp-ad-image-overlay",
+        ".ytp-ad-overlay-container",
+        ".ytp-ad-overlay-slot",
+        ".ytp-ad-text-overlay",
+        ".ytp-flyout-cta",
+        ".ytp-ad-action-interstitial-slot",
+        ".ytp-ad-action-interstitial-background-container",
+        ".ytp-suggested-action",
+        ".ytp-suggested-action-badge",
+        "div.video-ads",
+        ".ad-showing",
+        ".ad-interrupting"
+      ],
+      "overlayAds": [
+        ".ytp-ad-overlay-close-button",
+        ".ytp-ad-overlay-close-container",
+        "[class*='ytp-ad']",
+        "tp-yt-paper-dialog:has(.ytd-enforcement-message-view-model)",
+        "ytd-enforcement-message-view-model"
+      ],
+      "bannerAds": [
+        "ytd-banner-promo-renderer",
+        "ytd-statement-banner-renderer",
+        "ytd-primetime-promo-renderer",
+        "#masthead-ad",
+        "ytd-display-ad-renderer",
+        "ytd-in-feed-ad-layout-renderer",
+        "ytd-ad-slot-renderer",
+        "ytd-rich-item-renderer:has(.ytd-ad-slot-renderer)",
+        "#player-ads",
+        ".ytd-action-companion-ad-renderer",
+        "ytd-promoted-sparkles-web-renderer",
+        "ytd-promoted-sparkles-text-search-renderer",
+        ".ytd-companion-slot-renderer",
+        "ytd-compact-promoted-video-renderer",
+        "ytd-promoted-video-renderer",
+        ".ytp-visit-advertiser-link",
+        "ytd-merch-shelf-renderer",
+        "#related ytd-compact-promoted-video-renderer"
+      ],
+      "sponsoredContent": [
+        "ytd-promoted-sparkles-web-renderer",
+        "[class*='ytd-promoted']",
+        "ytd-search-pyv-renderer",
+        "ytd-video-masthead-ad-v3-renderer",
+        ".ytd-player-legacy-desktop-watch-ads-renderer",
+        "ytd-movie-offer-module-renderer",
+        "[data-ad-slot]",
+        "ytd-compact-movie-renderer[data-ad-slot]"
+      ],
+      "feedAds": [
+        "#contents > ytd-rich-item-renderer:has(ytd-ad-slot-renderer)",
+        "ytd-rich-section-renderer:has(ytd-ad-slot-renderer)",
+        "ytd-item-section-renderer:has(ytd-ad-slot-renderer)",
+        "#items > ytd-video-renderer:has(ytd-ad-slot-renderer)"
+      ],
+      "sidebar": [
+        "#secondary ytd-ad-slot-renderer",
+        "#secondary ytd-compact-promoted-video-renderer",
+        ".ytd-watch-flexy #secondary-inner ytd-ad-slot-renderer"
+      ],
+      "shortsFeed": [
+        "ytd-reel-shelf-renderer:has([aria-label*='Ad'])",
+        "ytd-reel-item-renderer[is-ad]"
+      ],
+      "membership": [
+        "ytd-engagement-panel-section-list-renderer[target-id='engagement-panel-sponsorships']",
+        "#sponsor-button"
+      ],
+      "premiumUpsell": [
+        "ytd-mealbar-promo-renderer",
+        "yt-mealbar-promo-renderer"
+      ]
+    },
+    "skipSelectors": {
+      "skipButton": [
+        ".ytp-ad-skip-button",
+        ".ytp-ad-skip-button-modern",
+        ".ytp-skip-ad-button",
+        "button.ytp-ad-skip-button-container",
+        ".ytp-ad-skip-button-slot button"
+      ],
+      "muteButton": ".ytp-mute-button",
+      "videoElement": "video.html5-main-video"
+    },
+    "xpaths": [
+      "//div[contains(@class, 'ytp-ad')]",
+      "//ytd-ad-slot-renderer",
+      "//div[@id='player-ads']",
+      "//span[contains(text(), 'Ad')]//ancestor::ytd-compact-promoted-video-renderer"
+    ]
+  },
+  
+  "reddit": {
+    "enabled": true,
+    "description": "Reddit ad elements",
+    "selectors": {
+      "promotedPosts": [
+        "[data-ad-id]",
+        ".promotedlink",
+        "[class*='promoted']",
+        "div[data-testid='post-container']:has([data-testid='promoted-icon'])",
+        "shreddit-post[is-promoted]",
+        "shreddit-post[promoted]",
+        "[data-promoted='true']",
+        "faceplate-tracker[source='ad']",
+        "[slot='promoted-posts']"
+      ],
+      "sidebar": [
+        ".ad-container",
+        ".redesign-beta-optin-btn",
+        "#right-sidebar-container .ad-container",
+        "[id*='ad']"
+      ],
+      "feed": [
+        "div[data-before^='t3_'][data-fullname*='promoted']",
+        "article.promotedlink",
+        "[data-ks-metadata*='promoted']"
+      ]
+    }
+  },
+  
+  "cnn": {
+    "enabled": true,
+    "description": "CNN ad elements",
+    "selectors": {
+      "display": [
+        ".ad--300x250",
+        ".ad--300x600",
+        ".ad--728x90",
+        ".ad--970x250",
+        "[class*='ad-slot']",
+        "[class*='ad__slot']",
+        ".ad__container",
+        ".ad__wrapper",
+        ".ad-slot",
+        ".el__embedded--fullwidth:has([data-ad])",
+        "[data-ad-zone]",
+        ".pg-no-min-height[data-ad-zone]"
+      ],
+      "sponsored": [
+        ".ad--branded-content",
+        ".ad--native",
+        "[class*='native-ad']",
+        ".pg-bignews-marketing"
+      ],
+      "video": [
+        ".ad__video",
+        "[class*='video-ad']"
+      ]
+    }
+  },
+  
+  "nytimes": {
+    "enabled": true,
+    "description": "New York Times ad elements",
+    "selectors": {
+      "display": [
+        "[data-testid='StandardAd']",
+        "[class*='ad-']",
+        ".ad-wrapper",
+        ".ad-container",
+        "[data-ad-placement]",
+        ".ad-unit",
+        "[id^='ad-']",
+        ".dfp-ad-container",
+        ".ad-slot",
+        "[class*='ad_']",
+        ".Story-Ad"
+      ],
+      "native": [
+        "[data-testid='PaidPost']",
+        ".paidpost",
+        "[class*='paid-post']",
+        ".native-ad"
+      ],
+      "interstitial": [
+        "[data-testid='interstitial-wrapper']",
+        ".interstitial",
+        "[class*='interstitial']"
+      ]
+    }
+  },
+  
+  "forbes": {
+    "enabled": true,
+    "description": "Forbes ad elements",
+    "selectors": {
+      "display": [
+        ".ad-unit",
+        "[class*='fbs-ad']",
+        "[id*='ad-slot']",
+        ".advertisement",
+        ".top-ad-container",
+        ".bottom-ad-container",
+        ".article-ad",
+        ".sidebar-ad"
+      ],
+      "interstitial": [
+        ".interstitial-ad",
+        "#paginated-interstitial",
+        ".fbs-interstitial"
+      ],
+      "brandVoice": [
+        ".brandvoice-label",
+        "[class*='brandvoice']",
+        ".bv-label"
+      ]
+    }
+  },
+  
+  "twitter": {
+    "enabled": true,
+    "description": "Twitter/X ad elements",
+    "selectors": {
+      "promotedTweets": [
+        "[data-testid='placementTracking']",
+        "div[data-testid='tweet']:has([aria-label*='Promoted'])",
+        "div[data-testid='tweet']:has([aria-label*='Ad'])",
+        "[data-testid='promotedIndicator']",
+        "[class*='promoted']",
+        "article:has(span:contains('Promoted'))"
+      ],
+      "trends": [
+        "[data-testid='trend']:has([class*='promoted'])",
+        "div[aria-label='Timeline: Trending now'] [class*='promoted']"
+      ],
+      "whoToFollow": [
+        "[data-testid='UserCell']:has([class*='promoted'])"
+      ]
+    }
+  },
+  
+  "facebook": {
+    "enabled": true,
+    "description": "Facebook ad elements",
+    "selectors": {
+      "sponsoredPosts": [
+        "[aria-label*='Sponsored']",
+        "[aria-labelledby*='Sponsored']",
+        "div[data-pagelet*='FeedUnit']:has(a[aria-label='Sponsored'])",
+        "span:contains('Sponsored'):not(:has(span))",
+        "[data-ad-preview]"
+      ],
+      "sidebar": [
+        "[data-pagelet='RightColumn'] [aria-label*='Sponsored']",
+        "[data-pagelet='RightColumn'] [data-ad]"
+      ]
+    }
+  },
+  
+  "generic": {
+    "enabled": true,
+    "description": "Generic ad selectors for most websites",
+    "selectors": {
+      "common": [
+        "[id*='google_ads']",
+        "[id*='googleads']",
+        "[id*='google-ads']",
+        "[class*='google-ads']",
+        "[class*='googleads']",
+        "[id*='ad-container']",
+        "[class*='ad-container']",
+        "[id*='ad_container']",
+        "[class*='ad_container']",
+        "[id*='ad-wrapper']",
+        "[class*='ad-wrapper']",
+        "[id*='ad_wrapper']",
+        "[class*='ad_wrapper']",
+        "[id*='advertisement']",
+        "[class*='advertisement']",
+        "[data-ad]",
+        "[data-ad-slot]",
+        "[data-ad-unit]",
+        "[data-ad-zone]",
+        "[data-ad-client]",
+        "[data-google-query-id]",
+        "[data-ad-layout]",
+        ".ad",
+        ".ads",
+        ".ad-unit",
+        ".adunit",
+        ".advert",
+        ".adbox",
+        ".adsbygoogle",
+        ".dfp-ad",
+        ".adnxs-ad",
+        "[id^='div-gpt-ad']",
+        "[id*='-ad-']",
+        "[class*='-ad-']",
+        "ins.adsbygoogle",
+        "amp-ad",
+        "amp-auto-ads"
+      ],
+      "sidebar": [
+        ".sidebar-ad",
+        ".sidebar-advertisement",
+        "#sidebar-ad",
+        ".sidebar .ad",
+        "#sidebar .ad",
+        "[class*='sidebar'] [class*='ad']"
+      ],
+      "banner": [
+        ".banner-ad",
+        "#banner-ad",
+        ".header-ad",
+        ".footer-ad",
+        ".top-ad",
+        ".bottom-ad",
+        "[class*='leaderboard']",
+        "[class*='billboard']",
+        "[class*='skyscraper']"
+      ],
+      "native": [
+        ".native-ad",
+        ".sponsored-content",
+        ".sponsored-post",
+        "[class*='sponsored']",
+        "[data-sponsored]",
+        ".promoted-content",
+        "[class*='native-ad']",
+        "[class*='paid-post']",
+        "[class*='paidpost']"
+      ],
+      "popup": [
+        ".popup-ad",
+        ".modal-ad",
+        "[class*='interstitial']",
+        ".overlay-ad",
+        ".lightbox-ad"
+      ],
+      "video": [
+        ".video-ad",
+        ".preroll-ad",
+        ".midroll-ad",
+        ".postroll-ad",
+        "[class*='video-ad']"
+      ],
+      "inline": [
+        ".in-article-ad",
+        ".mid-article-ad",
+        ".inline-ad",
+        "[class*='inline-ad']",
+        "[class*='in-article']",
+        "[class*='mid-article']"
+      ],
+      "sticky": [
+        ".sticky-ad",
+        ".fixed-ad",
+        "[class*='sticky-ad']",
+        "[class*='fixed-ad']",
+        "[class*='anchor-ad']"
+      ]
+    },
+    "attributePatterns": [
+      "data-ad",
+      "data-ad-slot",
+      "data-ad-unit",
+      "data-ad-client",
+      "data-ad-channel",
+      "data-ad-format",
+      "data-ad-layout",
+      "data-google-query-id"
+    ]
+  },
+  
+  "cookieBanners": {
+    "enabled": true,
+    "description": "Cookie consent banners",
+    "selectors": [
+      "#cookie-consent",
+      "#cookie-banner",
+      "#cookie-notice",
+      ".cookie-banner",
+      ".cookie-consent",
+      ".cookie-notice",
+      "[class*='cookie-consent']",
+      "[class*='cookie-banner']",
+      "[id*='cookie-consent']",
+      "[id*='cookie-banner']",
+      ".cc-banner",
+      "#onetrust-banner-sdk",
+      "#onetrust-consent-sdk",
+      ".qc-cmp-ui-container",
+      "#sp_message_container",
+      "#cmpContainer",
+      "[class*='consent-banner']",
+      "[id*='consent-banner']",
+      "[aria-label*='cookie']",
+      "[aria-label*='Cookie']",
+      "#gdpr-banner",
+      ".gdpr-banner",
+      "[class*='gdpr']",
+      ".CookieConsent",
+      "#CookieConsent"
+    ]
+  },
+  
+  "newsletterPopups": {
+    "enabled": false,
+    "description": "Newsletter subscription popups",
+    "selectors": [
+      "[class*='newsletter-popup']",
+      "[class*='email-popup']",
+      "[class*='subscribe-popup']",
+      "[class*='signup-popup']",
+      "[id*='newsletter-popup']",
+      "[id*='email-popup']",
+      "[id*='subscribe-popup']",
+      "[aria-label*='newsletter']",
+      "[aria-label*='subscribe']"
+    ]
+  },
+  
+  "socialWidgets": {
+    "enabled": false,
+    "description": "Social media widgets",
+    "selectors": [
+      ".fb-like",
+      ".fb-share-button",
+      ".twitter-share-button",
+      ".share-buttons",
+      ".social-share",
+      "[class*='social-widget']"
+    ]
+  }
+}

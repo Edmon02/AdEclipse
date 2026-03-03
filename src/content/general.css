@@ -1,0 +1,313 @@
+/* AdEclipse - General Ad Hiding Styles */
+
+/* ================================
+   Google Ads / AdSense
+   ================================ */
+[id*="google_ads"],
+[class*="google-ads"],
+[id*="google-ad"],
+[class*="google-ad"],
+ins.adsbygoogle,
+.adsbygoogle,
+[data-ad-client],
+[data-google-query-id],
+[id^="div-gpt-ad"],
+[id^="google_ads_iframe"],
+.GoogleActiveViewElement,
+.google-auto-placed {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  max-height: 0 !important;
+  overflow: hidden !important;
+}
+
+/* ================================
+   Generic Ad Containers
+   ================================ */
+[id*="ad-container"],
+[class*="ad-container"],
+[id*="ad_container"],
+[class*="ad_container"],
+[id*="ad-wrapper"],
+[class*="ad-wrapper"],
+[id*="ad_wrapper"],
+[class*="ad_wrapper"],
+[id*="advertisement"],
+[class*="advertisement"],
+[id*="advert-container"],
+[class*="advert-container"],
+[data-ad],
+[data-ad-slot],
+[data-ad-unit],
+[data-ad-zone],
+[data-ad-format],
+.ad,
+.ads,
+.ad-unit,
+.adunit,
+.advert,
+.adbox,
+.ad-slot,
+.ad-placement,
+.ad-block,
+.dfp-ad,
+.adnxs-ad {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  overflow: hidden !important;
+}
+
+/* ================================
+   Banner Ads by Position
+   ================================ */
+.banner-ad,
+.banner-advertisement,
+.header-ad,
+.footer-ad,
+.top-ad,
+.bottom-ad,
+.sidebar-ad,
+.sidebar-advertisement,
+[class*="leaderboard"],
+[class*="billboard"],
+[class*="skyscraper"] {
+  display: none !important;
+}
+
+/* ================================
+   Native/Sponsored Content
+   ================================ */
+.native-ad,
+.sponsored-content,
+.sponsored-post,
+.sponsored-link,
+[class*="sponsored"],
+[data-sponsored],
+.promoted-content,
+.promoted-post,
+[class*="native-ad"],
+[class*="paid-post"],
+[class*="paidpost"],
+[class*="partner-content"],
+.advertorial,
+.branded-content {
+  display: none !important;
+}
+
+/* ================================
+   Inline/Article Ads
+   ================================ */
+.in-article-ad,
+.mid-article-ad,
+.inline-ad,
+.article-ad,
+[class*="inline-ad"],
+[class*="in-article"],
+[class*="mid-article"],
+[class*="interstitial-ad"],
+.ad-interstitial,
+.content-ad {
+  display: none !important;
+}
+
+/* ================================
+   Popup/Overlay Ads
+   ================================ */
+.popup-ad,
+.modal-ad,
+.overlay-ad,
+.lightbox-ad,
+[class*="popup-ad"],
+[class*="overlay-ad"],
+[class*="interstitial"],
+.ad-overlay,
+.ad-modal {
+  display: none !important;
+}
+
+/* ================================
+   Sticky/Fixed Ads
+   ================================ */
+.sticky-ad,
+.fixed-ad,
+.anchor-ad,
+[class*="sticky-ad"],
+[class*="fixed-ad"],
+[class*="anchor-ad"],
+.adhesion-ad,
+.floating-ad {
+  display: none !important;
+}
+
+/* ================================
+   Video Ads
+   ================================ */
+.video-ad,
+.preroll-ad,
+.midroll-ad,
+.postroll-ad,
+[class*="video-ad"],
+.ima-ad-container,
+.vjs-ad-playing,
+.ad-video,
+.videoAdPlayer {
+  display: none !important;
+}
+
+/* ================================
+   Ad Networks
+   ================================ */
+/* Taboola */
+[id*="taboola"],
+[class*="taboola"],
+.trc_rbox,
+.trc_related_container,
+#taboola-below-article,
+#taboola-right-rail {
+  display: none !important;
+}
+
+/* Outbrain */
+[id*="outbrain"],
+[class*="outbrain"],
+.OUTBRAIN,
+.ob-widget,
+.ob-smartfeed-wrapper {
+  display: none !important;
+}
+
+/* Revcontent */
+[id*="revcontent"],
+[class*="revcontent"],
+.rc-cta-btn,
+.rc-item {
+  display: none !important;
+}
+
+/* MGID */
+[id*="mgid"],
+[class*="mgid"],
+.mgbox {
+  display: none !important;
+}
+
+/* ================================
+   Social Tracking (Optional)
+   ================================ */
+/*
+.fb-like,
+.fb-share-button,
+.twitter-share-button,
+.share-buttons,
+.social-share,
+[class*="social-widget"] {
+  display: none !important;
+}
+*/
+
+/* ================================
+   Cookie Banners (Optional)
+   ================================ */
+/*
+#cookie-consent,
+#cookie-banner,
+#cookie-notice,
+.cookie-banner,
+.cookie-consent,
+.cookie-notice,
+[class*="cookie-consent"],
+[class*="cookie-banner"],
+#onetrust-banner-sdk,
+#onetrust-consent-sdk,
+.cc-banner,
+#sp_message_container,
+#gdpr-banner,
+.gdpr-banner,
+[class*="gdpr"] {
+  display: none !important;
+}
+*/
+
+/* ================================
+   AMP Ads
+   ================================ */
+amp-ad,
+amp-auto-ads,
+amp-embed,
+amp-sticky-ad {
+  display: none !important;
+  height: 0 !important;
+}
+
+/* ================================
+   Tracking Pixels
+   ================================ */
+img[src*="doubleclick"],
+img[src*="googlesyndication"],
+img[src*="googleadservices"],
+img[src*="google-analytics"],
+img[src*="/pagead/"],
+img[src*="facebook.com/tr"],
+img[src*="analytics"],
+img[width="1"][height="1"],
+img[width="0"][height="0"] {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  visibility: hidden !important;
+}
+
+/* ================================
+   Ad-related iframes
+   ================================ */
+iframe[src*="doubleclick"],
+iframe[src*="googlesyndication"],
+iframe[src*="googleadservices"],
+iframe[src*="amazon-adsystem"],
+iframe[src*="facebook.com/plugins"],
+iframe[id*="google_ads"],
+iframe[name*="google_ads"],
+iframe[src*="/ads/"],
+iframe[src*="/ad/"] {
+  display: none !important;
+  height: 0 !important;
+  width: 0 !important;
+}
+
+/* ================================
+   Animation Classes
+   ================================ */
+.adeclipse-removing {
+  opacity: 0 !important;
+  transform: scale(0.95) !important;
+  transition: opacity 0.15s ease-out, transform 0.15s ease-out !important;
+  pointer-events: none !important;
+}
+
+.adeclipse-collapsed {
+  display: none !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
+/* ================================
+   Layout Fixes After Ad Removal
+   ================================ */
+/* Prevent layout shift from removed ads */
+[style*="min-height"]:empty,
+[style*="min-height"]:has(> .adeclipse-collapsed) {
+  min-height: 0 !important;
+}
+
+/* Fix gaps left by removed ads */
+article > .adeclipse-collapsed,
+.content > .adeclipse-collapsed,
+main > .adeclipse-collapsed {
+  margin: 0 !important;
+  padding: 0 !important;
+}

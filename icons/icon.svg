@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#10B981;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#059669;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background circle -->
+  <circle cx="64" cy="64" r="60" fill="url(#grad1)"/>
+  
+  <!-- Shield shape -->
+  <path d="M64 20 L100 35 L100 65 C100 90 64 108 64 108 C64 108 28 90 28 65 L28 35 Z" 
+        fill="white" fill-opacity="0.95"/>
+  
+  <!-- Eclipse/block symbol -->
+  <circle cx="64" cy="58" r="22" fill="#10B981"/>
+  <circle cx="72" cy="54" r="16" fill="white"/>
+  
+  <!-- Slash through -->
+  <line x1="48" y1="75" x2="80" y2="40" stroke="#EF4444" stroke-width="4" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,13 @@
+* text=auto eol=lf
+
+# Images and icons
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+
+# Windows scripts (if added later)
+*.bat text eol=crlf
+*.cmd text eol=crlf

@@ -1,0 +1,119 @@
+{
+  "manifest_version": 3,
+  "name": "AdEclipse",
+  "version": "1.0.0",
+  "description": "Block all types of ads on YouTube and across the web with intelligent detection and zero data collection.",
+  "author": "AdEclipse Team",
+  "homepage_url": "https://github.com/adeclipse/adeclipse",
+  
+  "permissions": [
+    "storage",
+    "tabs",
+    "declarativeNetRequest",
+    "declarativeNetRequestFeedback",
+    "scripting",
+    "alarms",
+    "activeTab",
+    "contextMenus"
+  ],
+  
+  "host_permissions": [
+    "*://*.youtube.com/*",
+    "*://*.googlevideo.com/*",
+    "*://*.doubleclick.net/*",
+    "*://*.google-analytics.com/*",
+    "*://*.googleadservices.com/*",
+    "*://*.googlesyndication.com/*",
+    "*://*.facebook.com/*",
+    "*://*.twitter.com/*",
+    "*://*.reddit.com/*",
+    "*://*.cnn.com/*",
+    "*://*.nytimes.com/*",
+    "*://*.forbes.com/*",
+    "<all_urls>"
+  ],
+  
+  "background": {
+    "service_worker": "src/background/background.js",
+    "type": "module"
+  },
+  
+  "content_scripts": [
+    {
+      "matches": ["*://*.youtube.com/*"],
+      "js": ["src/content/youtube-mainworld.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "MAIN"
+    },
+    {
+      "matches": ["*://*.youtube.com/*"],
+      "js": ["src/content/youtube.js"],
+      "css": ["src/content/youtube.css"],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": ["<all_urls>"],
+      "exclude_matches": ["*://*.youtube.com/*"],
+      "js": ["src/content/general.js"],
+      "css": ["src/content/general.css"],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content/anti-adblock.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
+  
+  "action": {
+    "default_popup": "src/popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "AdEclipse - Ad Blocker"
+  },
+  
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  
+  "options_page": "src/options/options.html",
+  
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "adblock_rules",
+        "enabled": true,
+        "path": "rules/declarative_rules.json"
+      }
+    ]
+  },
+  
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "rules/*.json"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  
+  "minimum_chrome_version": "111",
+  
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "adeclipse@extension",
+      "strict_min_version": "109.0"
+    }
+  }
+}

@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AdEclipse Settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="options-container">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">
+          <svg viewBox="0 0 32 32" class="logo-icon">
+            <circle cx="16" cy="16" r="14" fill="url(#gradient)" />
+            <path d="M10 16L14 20L22 12" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+            <defs>
+              <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" style="stop-color:#10B981"/>
+                <stop offset="100%" style="stop-color:#059669"/>
+              </linearGradient>
+            </defs>
+          </svg>
+          <span class="logo-text">AdEclipse</span>
+        </div>
+        <span class="version">v1.0.0</span>
+      </div>
+      
+      <nav class="sidebar-nav">
+        <a href="#general" class="nav-item active" data-section="general">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+          </svg>
+          <span>General</span>
+        </a>
+        <a href="#youtube" class="nav-item" data-section="youtube">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33A2.78 2.78 0 0 0 3.4 19c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.25 29 29 0 0 0-.46-5.33z"/>
+            <polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02"/>
+          </svg>
+          <span>YouTube</span>
+        </a>
+        <a href="#sites" class="nav-item" data-section="sites">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="2" y1="12" x2="22" y2="12"/>
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+          </svg>
+          <span>Website Rules</span>
+        </a>
+        <a href="#stats" class="nav-item" data-section="stats">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 20V10M12 20V4M6 20v-6"/>
+          </svg>
+          <span>Statistics</span>
+        </a>
+        <a href="#advanced" class="nav-item" data-section="advanced">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1Z"/>
+          </svg>
+          <span>Advanced</span>
+        </a>
+        <a href="#about" class="nav-item" data-section="about">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 16v-4M12 8h.01"/>
+          </svg>
+          <span>About</span>
+        </a>
+      </nav>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- General Section -->
+      <section class="settings-section active" id="general">
+        <h1 class="section-title">General Settings</h1>
+        
+        <div class="settings-group">
+          <h2 class="group-title">Protection</h2>
+          
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Enable AdEclipse</span>
+              <span class="setting-description">Master switch for all ad blocking</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="enabledToggle" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Blocking Mode</span>
+              <span class="setting-description">Choose how aggressively to block ads</span>
+            </div>
+            <select id="modeSelect" class="select-input">
+              <option value="light">Light - Block fewer ads</option>
+              <option value="balanced" selected>Balanced - Recommended</option>
+              <option value="aggressive">Aggressive - Block everything</option>
+            </select>
+          </div>
+        </div>
+        
+        <div class="settings-group">
+          <h2 class="group-title">Block Types</h2>
+          
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Video Ads</span>
+              <span class="setting-description">Pre-roll, mid-roll, and post-roll video ads</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="blockVideo" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Banner Ads</span>
+              <span class="setting-description">Display ads in headers, sidebars, and content</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="blockBanner" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Sponsored Content</span>
+              <span class="setting-description">Native ads and paid promotions</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="blockSponsored" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Popups & Overlays</span>
+              <span class="setting-description">Pop-up windows and overlay ads</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="blockPopups" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Trackers</span>
+              <span class="setting-description">Third-party tracking scripts</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="blockTrackers" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Cookie Banners</span>
+              <span class="setting-description">GDPR and privacy consent popups</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="blockCookies">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+        
+        <div class="settings-group">
+          <h2 class="group-title">Appearance</h2>
+          
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Theme</span>
+              <span class="setting-description">Choose your preferred color scheme</span>
+            </div>
+            <select id="themeSelect" class="select-input">
+              <option value="auto">System Default</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </div>
+          
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Show Badge Count</span>
+              <span class="setting-description">Display blocked ads count on extension icon</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="showBadge" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <!-- YouTube Section -->
+      <section class="settings-section" id="youtube">
+        <h1 class="section-title">YouTube Settings</h1>
+        
+        <div class="settings-group">
+          <h2 class="group-title">Video Ads</h2>
+          
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Enable YouTube Blocking</span>
+              <span class="setting-description">Block all types of YouTube ads</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="ytEnabled" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Auto-Skip Ads</span>
+              <span class="setting-description">Automatically click skip button when available</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="ytAutoSkip" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Speed Up Unskippable Ads</span>
+              <span class="setting-description">Play non-skippable ads at 16x speed</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="ytSpeedUp" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Mute Ads</span>
+              <span class="setting-description">Automatically mute audio during ads</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="ytMute" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+        
+        <div class="settings-group">
+          <h2 class="group-title">Page Elements</h2>
+          
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Block Overlay Ads</span>
+              <span class="setting-description">Remove video overlay and banner ads</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="ytOverlays" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Block Masthead Ads</span>
+              <span class="setting-description">Remove homepage banner ads</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="ytMasthead" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Block Promoted Videos</span>
+              <span class="setting-description">Remove sponsored results in search and recommendations</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="ytSponsored" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Block Merch Shelf</span>
+              <span class="setting-description">Remove merchandise promotions</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="ytMerch" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <!-- Sites Section -->
+      <section class="settings-section" id="sites">
+        <h1 class="section-title">Website Rules</h1>
+        
+        <div class="settings-group">
+          <h2 class="group-title">Whitelist</h2>
+          <p class="group-description">Sites where ads are allowed</p>
+          
+          <div class="list-editor">
+            <div class="list-input-row">
+              <input type="text" id="whitelistInput" class="text-input" placeholder="example.com">
+              <button class="btn-secondary" id="addWhitelist">Add</button>
+            </div>
+            <ul class="site-list" id="whitelistItems">
+              <!-- Items will be added here -->
+            </ul>
+          </div>
+        </div>
+        
+        <div class="settings-group">
+          <h2 class="group-title">Custom Selectors</h2>
+          <p class="group-description">Add custom CSS selectors to block specific elements</p>
+          
+          <div class="custom-rules-editor">
+            <div class="rule-input-row">
+              <input type="text" id="customDomain" class="text-input" placeholder="example.com">
+              <input type="text" id="customSelector" class="text-input" placeholder=".ad-container">
+              <button class="btn-secondary" id="addCustomRule">Add</button>
+            </div>
+            <ul class="rule-list" id="customRulesList">
+              <!-- Rules will be added here -->
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- Stats Section -->
+      <section class="settings-section" id="stats">
+        <h1 class="section-title">Statistics</h1>
+        
+        <div class="stats-overview">
+          <div class="stat-card large">
+            <div class="stat-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M4.93 4.93l14.14 14.14"/>
+              </svg>
+            </div>
+            <div class="stat-content">
+              <span class="stat-value" id="totalBlocked">0</span>
+              <span class="stat-label">Total Ads Blocked</span>
+            </div>
+          </div>
+          
+          <div class="stat-card large">
+            <div class="stat-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M12 6v6l4 2"/>
+              </svg>
+            </div>
+            <div class="stat-content">
+              <span class="stat-value" id="totalTime">0m</span>
+              <span class="stat-label">Total Time Saved</span>
+            </div>
+          </div>
+          
+          <div class="stat-card large">
+            <div class="stat-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+            </div>
+            <div class="stat-content">
+              <span class="stat-value" id="totalData">0 MB</span>
+              <span class="stat-label">Total Data Saved</span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="settings-group">
+          <h2 class="group-title">Breakdown by Type</h2>
+          <div class="breakdown-chart">
+            <div class="breakdown-row">
+              <span class="breakdown-label">Video Ads</span>
+              <div class="breakdown-bar">
+                <div class="breakdown-fill" id="videoBar" style="width: 0%"></div>
+              </div>
+              <span class="breakdown-value" id="videoCount">0</span>
+            </div>
+            <div class="breakdown-row">
+              <span class="breakdown-label">Banner Ads</span>
+              <div class="breakdown-bar">
+                <div class="breakdown-fill" id="bannerBar" style="width: 0%"></div>
+              </div>
+              <span class="breakdown-value" id="bannerCount">0</span>
+            </div>
+            <div class="breakdown-row">
+              <span class="breakdown-label">Network Requests</span>
+              <div class="breakdown-bar">
+                <div class="breakdown-fill" id="networkBar" style="width: 0%"></div>
+              </div>
+              <span class="breakdown-value" id="networkCount">0</span>
+            </div>
+            <div class="breakdown-row">
+              <span class="breakdown-label">Other</span>
+              <div class="breakdown-bar">
+                <div class="breakdown-fill" id="otherBar" style="width: 0%"></div>
+              </div>
+              <span class="breakdown-value" id="otherCount">0</span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="settings-group">
+          <button class="btn-danger" id="resetStats">Reset Statistics</button>
+        </div>
+      </section>
+
+      <!-- Advanced Section -->
+      <section class="settings-section" id="advanced">
+        <h1 class="section-title">Advanced Settings</h1>
+        
+        <div class="settings-group">
+          <h2 class="group-title">Performance</h2>
+          
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Lazy Load Scripts</span>
+              <span class="setting-description">Defer non-essential scripts for faster page load</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="lazyLoad" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Cache Blocked Elements</span>
+              <span class="setting-description">Remember blocked elements to improve performance</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="cacheEnabled" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Observer Debounce (ms)</span>
+              <span class="setting-description">Delay between DOM checks (lower = more responsive, higher = better performance)</span>
+            </div>
+            <input type="number" id="debounceMs" class="number-input" value="100" min="50" max="500">
+          </div>
+        </div>
+        
+        <div class="settings-group">
+          <h2 class="group-title">Machine Learning (Experimental)</h2>
+          
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Enable ML Detection</span>
+              <span class="setting-description">Use TensorFlow.js for intelligent ad detection</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="useML">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <p class="warning-text">Note: ML detection uses more CPU/memory and may slow down browsing.</p>
+        </div>
+        
+        <div class="settings-group">
+          <h2 class="group-title">Updates</h2>
+          
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Auto-Update Rules</span>
+              <span class="setting-description">Automatically fetch latest ad blocking rules</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="autoUpdate" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Last Update</span>
+              <span class="setting-description" id="lastUpdateTime">Never</span>
+            </div>
+            <button class="btn-secondary" id="checkUpdates">Check Now</button>
+          </div>
+        </div>
+        
+        <div class="settings-group">
+          <h2 class="group-title">Debug</h2>
+          
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Debug Mode</span>
+              <span class="setting-description">Enable verbose console logging</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="debugMode">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+        
+        <div class="settings-group">
+          <h2 class="group-title">Import / Export</h2>
+          
+          <div class="button-row">
+            <button class="btn-secondary" id="exportSettings">Export Settings</button>
+            <button class="btn-secondary" id="importSettings">Import Settings</button>
+            <input type="file" id="importFile" accept=".json" style="display: none;">
+          </div>
+        </div>
+      </section>
+
+      <!-- About Section -->
+      <section class="settings-section" id="about">
+        <h1 class="section-title">About AdEclipse</h1>
+        
+        <div class="about-content">
+          <div class="about-logo">
+            <svg viewBox="0 0 64 64" class="large-logo">
+              <circle cx="32" cy="32" r="28" fill="url(#gradientLarge)" />
+              <path d="M20 32L28 40L44 24" stroke="white" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+              <defs>
+                <linearGradient id="gradientLarge" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" style="stop-color:#10B981"/>
+                  <stop offset="100%" style="stop-color:#059669"/>
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+          
+          <h2 class="about-name">AdEclipse</h2>
+          <p class="about-version">Version 1.0.0</p>
+          
+          <p class="about-description">
+            A powerful, privacy-focused ad blocker that removes ads from YouTube and websites 
+            while respecting your data. All processing happens locally on your device.
+          </p>
+          
+          <div class="about-features">
+            <div class="feature-item">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              </svg>
+              <span>Privacy First - No data collection</span>
+            </div>
+            <div class="feature-item">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+              </svg>
+              <span>Fast - Under 50ms overhead</span>
+            </div>
+            <div class="feature-item">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/>
+                <path d="M12 6v6l4 2"/>
+              </svg>
+              <span>500+ ad domains blocked</span>
+            </div>
+          </div>
+          
+          <div class="about-links">
+            <a href="https://github.com/adeclipse/adeclipse" target="_blank" class="about-link">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+              </svg>
+              GitHub
+            </a>
+            <a href="mailto:support@adeclipse.example.com" class="about-link">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                <polyline points="22,6 12,13 2,6"/>
+              </svg>
+              Contact Support
+            </a>
+          </div>
+          
+          <p class="copyright">© 2026 AdEclipse. Open source under MIT License.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>
