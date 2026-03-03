@@ -17,6 +17,10 @@
  *     We never touch currentTime on the real video.
  * 5.  CSS hides <video> + spinner while ad-showing is present, so the user
  *     sees a brief blank – never ad frames.
+ * 6.  Once the ad has been seeked to end, we stop issuing further seeks to
+ *     prevent accidentally seeking the real video during source transition.
+ * 7.  After ad mode ends, we reset currentTime if it's suspiciously high
+ *     (fixes the ~1:07 skip bug).
  */
 (function () {
   'use strict';
@@ -76,10 +80,14 @@
 
   /* ── Persistent state ────────────────────────────────────────── */
 
-  var adHandling  = false;
-  var adLoopId    = null;
-  var savedMuted  = false;
-  var savedVolume = 1;
+  var adHandling    = false;
+  var adLoopId      = null;
+  var adIntervalId  = null;
+  var savedMuted    = false;
+  var savedVolume   = 1;
+  var adSeekedToEnd = false;
+  var adEndTimestamp = 0;
+  var wasInAdMode   = false;
 
   /* ── Authoritative ad check ──────────────────────────────────── */
 
@@ -88,6 +96,26 @@
       player.classList.contains('ad-showing') ||
       player.classList.contains('ad-interrupting')
     );
+  }
+
+  /* ── URL timestamp helper ──────────────────────────────────── */
+
+  function getUrlStartTime() {
+    try {
+      var params = new URLSearchParams(window.location.search);
+      var t = params.get('t');
+      if (t) {
+        // Handle formats: "120", "120s", "2m", "1h2m3s"
+        var match = t.match(/(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s?)?$/);
+        if (match) {
+          var h = parseInt(match[1] || '0', 10);
+          var m = parseInt(match[2] || '0', 10);
+          var s = parseInt(match[3] || '0', 10);
+          return h * 3600 + m * 60 + s;
+        }
+      }
+    } catch (_) {}
+    return 0;
   }
 
   /* ── Micro-actions ───────────────────────────────────────────── */
@@ -121,28 +149,32 @@
 
     // 2. Seek ad video to its end so YouTube advances to next content.
     //    Guard: only seek videos shorter than 5 minutes (ads are always short).
-    //    This prevents accidentally seeking the real video if YouTube briefly
-    //    keeps ad-showing while loading real content.
-    var dur = video.duration;
-    if (Number.isFinite(dur) && dur > 0 && dur < 300 && video.currentTime < dur - 0.01) {
-      video.currentTime = dur;
+    //    Once we've seeked to end, stop issuing further seeks to prevent
+    //    accidentally seeking the real video during the source transition.
+    if (!adSeekedToEnd) {
+      var dur = video.duration;
+      if (Number.isFinite(dur) && dur > 0 && dur < 300 && video.currentTime < dur - 0.01) {
+        video.currentTime = dur;
+      }
+
+      // Check if we've reached the end — fire ended event and stop seeking
+      if (Number.isFinite(dur) && dur > 0 && video.currentTime >= dur - 0.5) {
+        adSeekedToEnd = true;
+        try { video.dispatchEvent(new Event('ended')); } catch (_) {}
+      }
     }
 
-    // 3. Player-API skip (works on some ad types)
-    try { if (typeof player.skipAd === 'function') player.skipAd(); } catch (_) {}
-    try { if (typeof player.cancelPlayback === 'function') player.cancelPlayback(); } catch (_) {}
-
-    // 4. Click all visible skip buttons
+    // 3. Click all visible skip buttons
     clickSkipButtons();
 
-    // 5. Hide leftover overlay elements
+    // 4. Hide leftover overlay elements
     hideAdOverlays();
   }
 
   /* ── Ad-loop management ──────────────────────────────────────── */
 
   function beginAdLoop(player) {
-    if (adLoopId !== null) return;
+    if (adLoopId !== null || adIntervalId !== null) return;
 
     var step = function () {
       if (!playerInAdMode(player)) {
@@ -150,10 +182,21 @@
         return;
       }
       nukeAdFrame(player);
-      adLoopId = requestAnimationFrame(step);
     };
 
-    adLoopId = requestAnimationFrame(step);
+    // setInterval at 16ms for reliable firing even when CSS hides the video
+    // (rAF may be throttled when video has visibility:hidden)
+    adIntervalId = setInterval(function () {
+      step();
+    }, 16);
+
+    // Also keep rAF as secondary mechanism for when the tab is active
+    var rAfStep = function () {
+      if (!playerInAdMode(player)) return;
+      nukeAdFrame(player);
+      adLoopId = requestAnimationFrame(rAfStep);
+    };
+    adLoopId = requestAnimationFrame(rAfStep);
   }
 
   function endAdLoop(player) {
@@ -161,12 +204,51 @@
       cancelAnimationFrame(adLoopId);
       adLoopId = null;
     }
+    if (adIntervalId !== null) {
+      clearInterval(adIntervalId);
+      adIntervalId = null;
+    }
+
+    wasInAdMode = true;
+    adEndTimestamp = Date.now();
 
     var video = player.querySelector('video');
     if (video) {
       video.muted       = savedMuted;
       video.volume       = savedVolume;
       video.playbackRate = 1;   // safety: ensure normal speed
+
+      // Register one-shot listeners to reset currentTime if the real video
+      // inherited a wrong position from the ad-skip seeks
+      var resetDone = false;
+      var resetIfNeeded = function () {
+        if (resetDone) return;
+
+        // Only act within 5 seconds of ad ending
+        if (Date.now() - adEndTimestamp > 5000) {
+          cleanup();
+          return;
+        }
+
+        // If not in ad mode and currentTime is suspiciously high
+        if (!playerInAdMode(player) && video.currentTime > 2) {
+          var targetTime = getUrlStartTime();
+          video.currentTime = targetTime;
+          resetDone = true;
+          cleanup();
+        }
+      };
+
+      var cleanup = function () {
+        video.removeEventListener('playing', resetIfNeeded, true);
+        video.removeEventListener('loadeddata', resetIfNeeded, true);
+        video.removeEventListener('timeupdate', resetIfNeeded, true);
+        wasInAdMode = false;
+      };
+
+      video.addEventListener('playing', resetIfNeeded, true);
+      video.addEventListener('loadeddata', resetIfNeeded, true);
+      video.addEventListener('timeupdate', resetIfNeeded, true);
     }
 
     adHandling = false;
@@ -178,16 +260,29 @@
     if (playerInAdMode(player)) {
       if (!adHandling) {
         adHandling = true;
+        adSeekedToEnd = false;
 
         // Snapshot audio state BEFORE we mute
         var video = player.querySelector('video');
         if (video) {
           savedMuted  = video.muted;
           savedVolume = video.volume;
+
+          // One-shot listener: seek as soon as duration is known
+          var onMeta = function () {
+            video.removeEventListener('loadedmetadata', onMeta, true);
+            if (playerInAdMode(player) && !adSeekedToEnd) {
+              var dur = video.duration;
+              if (Number.isFinite(dur) && dur > 0 && dur < 300) {
+                video.currentTime = dur;
+              }
+            }
+          };
+          video.addEventListener('loadedmetadata', onMeta, true);
         }
       }
 
-      // Immediate first attempt (don't wait for rAF)
+      // Immediate first attempt (don't wait for rAF/interval)
       nukeAdFrame(player);
       beginAdLoop(player);
     } else if (adHandling) {
@@ -211,8 +306,16 @@
     }
 
     video.addEventListener('loadeddata', function () {
-      if (!playerInAdMode(player) && video.playbackRate !== 1) {
-        video.playbackRate = 1;
+      if (!playerInAdMode(player)) {
+        if (video.playbackRate !== 1) {
+          video.playbackRate = 1;
+        }
+        // Post-ad reset: if we recently exited ad mode and time is wrong
+        if (wasInAdMode && video.currentTime > 2) {
+          var targetTime = getUrlStartTime();
+          video.currentTime = targetTime;
+          wasInAdMode = false;
+        }
       }
     }, true);
 

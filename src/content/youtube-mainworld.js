@@ -1,6 +1,7 @@
 /**
  * AdEclipse - YouTube Main World Patch
  * Runs in MAIN world to sanitize YouTube player payloads before ad UI is built.
+ * Also provides MAIN-world player API access for direct ad skipping.
  */
 (function() {
   'use strict';
@@ -26,14 +27,52 @@
     'adNextParams',
     'instreamVideoAdRenderer',
     'linearAdSequenceRenderer',
-    'adSignalsInfo'
+    'adSignalsInfo',
+    // Additional keys for modern YouTube ad payloads
+    'adBreakServiceRenderer',
+    'adSlotRenderer',
+    'adBreakRenderer',
+    'advertiserInfoRenderer',
+    'promotedSparklesWebRenderer',
+    'promotedSparklesTextSearchRenderer',
+    'compactPromotedVideoRenderer',
+    'promotedVideoRenderer',
+    'playerLegacyDesktopWatchAdsRenderer',
+    'actionCompanionAdRenderer',
+    'adPlacementConfig',
+    'adPlacementRenderer',
+    'instreamAdPlayerOverlayRenderer',
+    'invideoOverlayAdRenderer',
+    'adActionInterstitialRenderer',
+    'adFeedbackRenderer',
+    'adSlotAndLayout',
+    'adSlotMetadata',
+    'adLayoutMetadata',
+    'adLayoutRenderData',
+    'adHoverTextButtonRenderer',
+    'adInfoDialogRenderer',
+    'adReasonRenderer'
+  ];
+
+  // Keys whose array children should be scanned for ad renderer items
+  const AD_RENDERER_PATTERNS = [
+    'adSlotRenderer',
+    'promotedSparkles',
+    'promotedVideo',
+    'displayAd',
+    'inFeedAdLayout',
+    'CompanionAd',
+    'companionAd',
+    'adSlot',
+    'searchPyv'
   ];
 
   const isTargetYoutubeiRequest = (url) => (
     url.includes('/youtubei/v1/player') ||
     url.includes('/youtubei/v1/next') ||
     url.includes('/youtubei/v1/reel/reel_watch_sequence') ||
-    url.includes('/youtubei/v1/browse')
+    url.includes('/youtubei/v1/browse') ||
+    url.includes('/youtubei/v1/ad_break')
   );
 
   const cleanseObject = (obj, seen = new WeakSet()) => {
@@ -46,12 +85,29 @@
       return obj;
     }
 
+    // Delete known ad keys
     for (const key of AD_KEYS) {
       if (key in obj) delete obj[key];
     }
 
     if (Array.isArray(obj.adPlacements)) obj.adPlacements = [];
     if (Array.isArray(obj.playerAds)) obj.playerAds = [];
+
+    // Filter ad renderer items out of content arrays
+    const ARRAY_KEYS = ['contents', 'items', 'results', 'richItems'];
+    for (const arrKey of ARRAY_KEYS) {
+      if (Array.isArray(obj[arrKey])) {
+        obj[arrKey] = obj[arrKey].filter(function(item) {
+          if (!item || typeof item !== 'object') return true;
+          var itemKeys = Object.keys(item);
+          return !itemKeys.some(function(k) {
+            return AD_RENDERER_PATTERNS.some(function(pat) {
+              return k.includes(pat);
+            });
+          });
+        });
+      }
+    }
 
     if (obj.playabilityStatus && typeof obj.playabilityStatus === 'object') {
       const reason = String(obj.playabilityStatus.reason || '').toLowerCase();
@@ -86,6 +142,11 @@
         cleanseObject(window.ytInitialPlayerResponse);
       }
     } catch (_) {}
+    try {
+      if (window.ytInitialData) {
+        cleanseObject(window.ytInitialData);
+      }
+    } catch (_) {}
   };
 
   const patchInitialPlayerResponseSetter = () => {
@@ -98,6 +159,21 @@
         },
         set(value) {
           current = cleanseObject(value);
+        }
+      });
+    } catch (_) {}
+  };
+
+  const patchInitialDataSetter = () => {
+    try {
+      let currentData = window.ytInitialData;
+      Object.defineProperty(window, 'ytInitialData', {
+        configurable: true,
+        get() {
+          return currentData;
+        },
+        set(value) {
+          currentData = cleanseObject(value);
         }
       });
     } catch (_) {}
@@ -156,8 +232,70 @@
     };
   };
 
+  /* ── MAIN-world player API ad skipper ──────────────────────────── */
+
+  const installMainWorldAdSkipper = () => {
+    const trySkip = () => {
+      try {
+        var player = document.getElementById('movie_player');
+        if (!player) return;
+
+        // These methods exist on YouTube's internal player API (MAIN world only)
+        if (typeof player.skipAd === 'function') player.skipAd();
+        if (typeof player.cancelPlayback === 'function') player.cancelPlayback();
+
+        // Access internal player API for ad-specific control
+        if (typeof player.getVideoData === 'function') {
+          var vd = player.getVideoData();
+          if (vd && vd.isAd) {
+            var video = player.querySelector('video');
+            if (video && Number.isFinite(video.duration) && video.duration > 0 && video.duration < 300) {
+              if (typeof player.seekTo === 'function') {
+                player.seekTo(video.duration, true);
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    };
+
+    const watchPlayer = () => {
+      var player = document.getElementById('movie_player');
+      if (!player) {
+        setTimeout(watchPlayer, 100);
+        return;
+      }
+
+      // Observe class changes for ad state
+      new MutationObserver(function() {
+        if (player.classList.contains('ad-showing') ||
+            player.classList.contains('ad-interrupting')) {
+          trySkip();
+        }
+      }).observe(player, { attributes: true, attributeFilter: ['class'] });
+
+      // Also poll for reliability
+      setInterval(function() {
+        if (player.classList.contains('ad-showing') ||
+            player.classList.contains('ad-interrupting')) {
+          trySkip();
+        }
+      }, 100);
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', watchPlayer);
+    } else {
+      watchPlayer();
+    }
+  };
+
+  /* ── Bootstrap ─────────────────────────────────────────────────── */
+
   patchInitialResponse();
   patchInitialPlayerResponseSetter();
+  patchInitialDataSetter();
   patchFetch();
   patchXhr();
+  installMainWorldAdSkipper();
 })();

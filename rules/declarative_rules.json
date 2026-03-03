@@ -898,5 +898,41 @@
       "urlFilter": "*://*.adobedtm.com/*",
       "resourceTypes": ["script", "image", "xmlhttprequest"]
     }
+  },
+  {
+    "id": 101,
+    "priority": 2,
+    "action": { "type": "block" },
+    "condition": {
+      "urlFilter": "*://*.youtube.com/api/stats/atr*",
+      "resourceTypes": ["xmlhttprequest", "ping", "image"]
+    }
+  },
+  {
+    "id": 102,
+    "priority": 2,
+    "action": { "type": "block" },
+    "condition": {
+      "urlFilter": "*://*.youtube.com/api/stats/qoe*oad=*",
+      "resourceTypes": ["xmlhttprequest", "ping"]
+    }
+  },
+  {
+    "id": 103,
+    "priority": 3,
+    "action": { "type": "block" },
+    "condition": {
+      "urlFilter": "*://*.googlevideo.com/videoplayback*&ctier=L*",
+      "resourceTypes": ["media", "xmlhttprequest"]
+    }
+  },
+  {
+    "id": 104,
+    "priority": 2,
+    "action": { "type": "block" },
+    "condition": {
+      "urlFilter": "*://*.youtube.com/youtubei/v1/log_event*",
+      "resourceTypes": ["xmlhttprequest", "ping"]
+    }
   }
 ]
