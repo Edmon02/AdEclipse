@@ -68,7 +68,7 @@
 
 1. Download or clone this repository:
    ```bash
-   git clone https://github.com/yourusername/adeclipse.git
+   git clone https://github.com/Edmon02/adeclipse.git
    cd adeclipse
    ```
 
