@@ -68,10 +68,13 @@
     
     // Initial cleanup
     removeAds();
-    
+
     // Set up mutation observer
     setupObserver();
-    
+
+    // Set up dedicated click-jack overlay monitor (polls & observes)
+    setupClickjackMonitor();
+
     // Handle lazy-loaded content
     setupScrollListener();
     
@@ -357,6 +360,9 @@
     if (CONFIG.mode === 'aggressive') {
       scanForAds();
     }
+
+    // Always scan for click-jacking overlays (these are dangerous on all modes)
+    removeClickjackOverlays();
   }
   
   /**
@@ -431,6 +437,172 @@
   }
   
   /**
+   * Detect and remove click-jacking overlay ads.
+   *
+   * Many shady sites inject transparent <div> layers with:
+   *   - position: absolute/fixed
+   *   - z-index: very high  (often 2147483647)
+   *   - pointer-events: auto
+   *   - no meaningful visible content (empty or only nested divs)
+   *   - covering a large portion of the viewport
+   *
+   * These intercept every click and redirect the user to an ad URL.
+   * We detect them heuristically and remove them, then keep watching
+   * because many sites re-inject them after removal.
+   */
+  function removeClickjackOverlays() {
+    const viewW = window.innerWidth;
+    const viewH = window.innerHeight;
+    // Minimum coverage to be suspicious: 40% of viewport area
+    const minArea = viewW * viewH * 0.4;
+
+    // Check all absolutely/fixed positioned elements with very high z-index
+    const candidates = document.querySelectorAll(
+      'div, span, section, aside, a'
+    );
+
+    for (const el of candidates) {
+      if (state.elementsRemoved.has(el)) continue;
+
+      const style = getComputedStyle(el);
+      const position = style.position;
+      if (position !== 'absolute' && position !== 'fixed') continue;
+
+      const zIndex = parseInt(style.zIndex, 10);
+      if (isNaN(zIndex) || zIndex < 9999) continue;
+
+      const pointerEvents = style.pointerEvents;
+      // Elements with pointer-events:none at the top level are not dangerous
+      // but their children might have pointer-events:auto – check those too
+      const rect = el.getBoundingClientRect();
+      const area = rect.width * rect.height;
+
+      if (area < minArea) continue;
+
+      // Check if the element is essentially empty/transparent (click-jack layer)
+      const isClickjack = isClickjackOverlay(el, style);
+      if (isClickjack) {
+        log.debug('Removing click-jack overlay:', el.className || el.tagName, rect.width + 'x' + rect.height, 'z-index:' + zIndex);
+        el.remove();
+        state.adsBlocked++;
+        notifyAdBlocked();
+        continue;
+      }
+
+      // Also check children that are large pointer-events:auto overlays
+      removeClickjackChildren(el);
+    }
+  }
+
+  /**
+   * Determine if an element is a click-jacking overlay.
+   */
+  function isClickjackOverlay(el, style) {
+    // Must have pointer-events that can capture clicks (auto is default)
+    if (style.pointerEvents === 'none') {
+      // If parent has pointer-events:none, check if children have auto
+      return hasClickjackChildren(el);
+    }
+
+    // Check if the element has no real visible content
+    // (background is transparent/none, no text, no images)
+    const bg = style.backgroundColor;
+    const bgImage = style.backgroundImage;
+    const hasVisibleBg = bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)';
+    const hasVisibleBgImg = bgImage && bgImage !== 'none';
+    const hasDirectText = getDirectTextContent(el).trim().length > 0;
+
+    // If it has visible content, it might be a real element
+    if (hasVisibleBg || hasVisibleBgImg || hasDirectText) {
+      return false;
+    }
+
+    // Empty/transparent element covering a large area with high z-index = click-jack
+    return true;
+  }
+
+  /**
+   * Check if an element with pointer-events:none has children with pointer-events:auto
+   * that act as click-jacking layers.
+   */
+  function hasClickjackChildren(parent) {
+    const children = parent.children;
+    for (const child of children) {
+      const cs = getComputedStyle(child);
+      if (cs.pointerEvents === 'auto') {
+        const rect = child.getBoundingClientRect();
+        const viewW = window.innerWidth;
+        const viewH = window.innerHeight;
+        if (rect.width * rect.height > viewW * viewH * 0.3) {
+          const text = getDirectTextContent(child).trim();
+          if (text.length === 0) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Remove click-jacking children of a container (e.g. parent has pointer-events:none
+   * but children have pointer-events:auto covering the page).
+   */
+  function removeClickjackChildren(parent) {
+    const children = parent.children;
+    const viewW = window.innerWidth;
+    const viewH = window.innerHeight;
+    let removedAny = false;
+
+    for (let i = children.length - 1; i >= 0; i--) {
+      const child = children[i];
+      if (state.elementsRemoved.has(child)) continue;
+
+      const cs = getComputedStyle(child);
+      if (cs.pointerEvents !== 'auto') continue;
+
+      const pos = cs.position;
+      if (pos !== 'absolute' && pos !== 'fixed') continue;
+
+      const rect = child.getBoundingClientRect();
+      if (rect.width * rect.height < viewW * viewH * 0.3) continue;
+
+      const text = getDirectTextContent(child).trim();
+      const bg = cs.backgroundColor;
+      const hasBg = bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)';
+      const bgImg = cs.backgroundImage;
+      const hasBgImg = bgImg && bgImg !== 'none';
+
+      // Empty overlay child covering a large portion = click-jacking
+      if (text.length === 0 && !hasBg && !hasBgImg) {
+        log.debug('Removing click-jack child:', child.className || child.tagName);
+        child.remove();
+        state.adsBlocked++;
+        notifyAdBlocked();
+        removedAny = true;
+      }
+    }
+
+    // If we removed all meaningful children, remove the parent wrapper too
+    if (removedAny && parent.children.length === 0) {
+      parent.remove();
+    }
+  }
+
+  /**
+   * Get only direct text content of an element (not its children's text).
+   */
+  function getDirectTextContent(el) {
+    let text = '';
+    for (const node of el.childNodes) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        text += node.textContent;
+      }
+    }
+    return text;
+  }
+
+  /**
    * Remove element with animation
    */
   function removeElement(element) {
@@ -487,11 +659,63 @@
   }
   
   /**
+   * Dedicated monitor for click-jacking overlays.
+   * These are often re-injected by ad scripts after removal,
+   * so we use a fast-polling approach in addition to mutation observation.
+   */
+  function setupClickjackMonitor() {
+    // Poll every 500ms – overlay re-injection is common
+    state.clickjackInterval = setInterval(() => {
+      removeClickjackOverlays();
+    }, 500);
+
+    // Also observe changes to style attributes (overlays can be shown via style changes)
+    state.clickjackObserver = new MutationObserver((mutations) => {
+      let needsScan = false;
+      for (const mutation of mutations) {
+        if (mutation.type === 'childList') {
+          for (const node of mutation.addedNodes) {
+            if (node.nodeType === Node.ELEMENT_NODE) {
+              const style = node.style;
+              // Fast check: if the new node has high z-index, scan immediately
+              if (style && (parseInt(style.zIndex, 10) > 9999 || style.position === 'fixed' || style.position === 'absolute')) {
+                needsScan = true;
+                break;
+              }
+            }
+          }
+        } else if (mutation.type === 'attributes') {
+          if (mutation.attributeName === 'style' || mutation.attributeName === 'class') {
+            needsScan = true;
+          }
+        }
+        if (needsScan) break;
+      }
+      if (needsScan) {
+        removeClickjackOverlays();
+      }
+    });
+
+    state.clickjackObserver.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['style', 'class']
+    });
+  }
+
+  /**
    * Clean up on unload
    */
   function cleanup() {
     if (state.observer) {
       state.observer.disconnect();
+    }
+    if (state.clickjackObserver) {
+      state.clickjackObserver.disconnect();
+    }
+    if (state.clickjackInterval) {
+      clearInterval(state.clickjackInterval);
     }
   }
   

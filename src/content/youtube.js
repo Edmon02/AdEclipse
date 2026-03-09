@@ -28,6 +28,35 @@
   if (window.__ADECLIPSE_YT_LOADED__) return;
   window.__ADECLIPSE_YT_LOADED__ = true;
 
+  /* ── Enabled gate ──────────────────────────────────────────── */
+  /* Ask the background whether the extension is enabled for this  *
+   * site.  If disabled (global OFF or site-whitelisted) we bail   *
+   * out completely – no styles, no observers, no ad skipping.     */
+
+  var extensionEnabled = true; // optimistic default; corrected below
+
+  function checkEnabledAndBoot() {
+    try {
+      chrome.runtime.sendMessage({ type: 'GET_SITE_ENABLED' }, function (res) {
+        if (chrome.runtime.lastError || !res) {
+          // Extension context gone – do nothing
+          return;
+        }
+        extensionEnabled = res.enabled;
+        if (!extensionEnabled) {
+          // Remove any styles we may have already injected
+          var earlyStyle = document.getElementById('adeclipse-yt-early');
+          if (earlyStyle) earlyStyle.remove();
+          return; // stop – don't attach any observers or loops
+        }
+        // Enabled → proceed with full bootstrap
+        bootstrapAdBlocker();
+      });
+    } catch (_) {
+      // If messaging fails, assume disabled to be safe
+    }
+  }
+
   /* ── Selector constants ──────────────────────────────────────── */
 
   var SKIP_BTN_SEL =
@@ -417,11 +446,16 @@
 
   /* ── Bootstrap ───────────────────────────────────────────────── */
 
-  injectEarlyStyle();
-  purgeStaticAds();
-  attachPlayerObserver();
-  attachVideoSafety();
-  attachBodyObserver();
-  attachNavigationHooks();
-  startSafetyPoll();
+  function bootstrapAdBlocker() {
+    injectEarlyStyle();
+    purgeStaticAds();
+    attachPlayerObserver();
+    attachVideoSafety();
+    attachBodyObserver();
+    attachNavigationHooks();
+    startSafetyPoll();
+  }
+
+  // Gate everything behind the enabled check
+  checkEnabledAndBoot();
 })();

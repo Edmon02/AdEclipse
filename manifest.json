@@ -38,36 +38,7 @@
     "type": "module"
   },
   
-  "content_scripts": [
-    {
-      "matches": ["*://*.youtube.com/*"],
-      "js": ["src/content/youtube-mainworld.js"],
-      "run_at": "document_start",
-      "all_frames": true,
-      "world": "MAIN"
-    },
-    {
-      "matches": ["*://*.youtube.com/*"],
-      "js": ["src/content/youtube.js"],
-      "css": ["src/content/youtube.css"],
-      "run_at": "document_start",
-      "all_frames": true
-    },
-    {
-      "matches": ["<all_urls>"],
-      "exclude_matches": ["*://*.youtube.com/*"],
-      "js": ["src/content/general.js"],
-      "css": ["src/content/general.css"],
-      "run_at": "document_start",
-      "all_frames": true
-    },
-    {
-      "matches": ["<all_urls>"],
-      "js": ["src/content/anti-adblock.js"],
-      "run_at": "document_start",
-      "all_frames": true
-    }
-  ],
+  "content_scripts": [],
   
   "action": {
     "default_popup": "src/popup/popup.html",
@@ -102,7 +73,9 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "rules/*.json"
+        "rules/*.json",
+        "src/content/*.js",
+        "src/content/*.css"
       ],
       "matches": ["<all_urls>"]
     }

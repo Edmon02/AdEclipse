@@ -52,6 +52,8 @@ class OptionsPage {
         speedMultiplier: 16
       },
       whitelist: [],
+      blacklist: [],
+      websiteMode: 'manual',
       customRules: [],
       performance: {
         observerDebounce: 100,
@@ -149,6 +151,12 @@ class OptionsPage {
 
     // Whitelist Management
     this.setupWhitelistEditor();
+
+    // Blacklist (Protected Sites) Management
+    this.setupBlacklistEditor();
+
+    // Website Mode
+    this.setupWebsiteMode();
 
     // Custom Rules Management
     this.setupCustomRulesEditor();
@@ -253,6 +261,11 @@ class OptionsPage {
     // Whitelist
     this.renderWhitelist();
 
+    // Blacklist (Protected Sites)
+    this.renderBlacklist();
+    this.setSelectValue('websiteModeSelect', this.settings.websiteMode || 'manual');
+    this.updateProtectedSitesVisibility();
+
     // Custom Rules
     this.renderCustomRules();
 
@@ -345,6 +358,99 @@ class OptionsPage {
     list.querySelectorAll('.remove-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         this.removeWhitelistEntry(btn.dataset.domain);
+      });
+    });
+  }
+
+  // Website Mode
+  setupWebsiteMode() {
+    const select = document.getElementById('websiteModeSelect');
+    if (!select) return;
+
+    select.addEventListener('change', () => {
+      this.settings.websiteMode = select.value;
+      this.saveSettings();
+      this.updateProtectedSitesVisibility();
+    });
+  }
+
+  updateProtectedSitesVisibility() {
+    const group = document.getElementById('protectedSitesGroup');
+    if (!group) return;
+    // Show the protected sites list always, but highlight when in manual mode
+    group.style.opacity = this.settings.websiteMode === 'manual' ? '1' : '0.5';
+  }
+
+  // Blacklist (Protected Sites) Editor
+  setupBlacklistEditor() {
+    const addBtn = document.getElementById('addBlacklist');
+    const input = document.getElementById('blacklistInput');
+
+    addBtn?.addEventListener('click', () => {
+      this.addBlacklistEntry();
+    });
+
+    input?.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        this.addBlacklistEntry();
+      }
+    });
+  }
+
+  addBlacklistEntry() {
+    const input = document.getElementById('blacklistInput');
+    const site = input?.value.trim();
+
+    if (!site) return;
+
+    // Normalize domain
+    let domain = site.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0];
+
+    if (!this.settings.blacklist) {
+      this.settings.blacklist = [];
+    }
+
+    if (!this.settings.blacklist.includes(domain)) {
+      this.settings.blacklist.push(domain);
+      this.saveSettings();
+      this.renderBlacklist();
+    }
+
+    input.value = '';
+  }
+
+  removeBlacklistEntry(domain) {
+    this.settings.blacklist = this.settings.blacklist.filter(d => d !== domain);
+    this.saveSettings();
+    this.renderBlacklist();
+  }
+
+  renderBlacklist() {
+    const list = document.getElementById('blacklistItems');
+    if (!list) return;
+
+    const blacklist = this.settings.blacklist || [];
+
+    if (blacklist.length === 0) {
+      list.innerHTML = '<li class="site-list-item"><span style="color: var(--text-muted)">No sites added yet</span></li>';
+      return;
+    }
+
+    list.innerHTML = blacklist.map(domain => `
+      <li class="site-list-item">
+        <span>${this.escapeHtml(domain)}</span>
+        <button class="remove-btn" data-domain="${this.escapeHtml(domain)}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 6L6 18M6 6l12 12"/>
+          </svg>
+        </button>
+      </li>
+    `).join('');
+
+    // Add remove handlers
+    list.querySelectorAll('.remove-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.removeBlacklistEntry(btn.dataset.domain);
       });
     });
   }

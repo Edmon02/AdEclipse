@@ -37,6 +37,9 @@ const DEFAULT_SETTINGS = {
   // Site lists
   whitelist: [],
   blacklist: [],
+
+  // Website ad blocking mode: 'all' = block ads on all sites, 'manual' = only block on blacklisted sites
+  websiteMode: 'manual',
   
   // Performance
   performance: {

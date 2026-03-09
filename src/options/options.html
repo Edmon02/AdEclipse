@@ -308,11 +308,42 @@
       <!-- Sites Section -->
       <section class="settings-section" id="sites">
         <h1 class="section-title">Website Rules</h1>
-        
+
+        <div class="settings-group">
+          <h2 class="group-title">Website Ad Blocking Mode</h2>
+          <p class="group-description">Choose how website ad blocking works (YouTube is always protected when enabled above)</p>
+
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Mode</span>
+              <span class="setting-description">Manual: only block ads on sites you add below. All Sites: block ads everywhere.</span>
+            </div>
+            <select id="websiteModeSelect" class="select-input">
+              <option value="manual" selected>Manual - Only listed sites</option>
+              <option value="all">All Sites - Block everywhere</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="settings-group" id="protectedSitesGroup">
+          <h2 class="group-title">Protected Sites</h2>
+          <p class="group-description">Sites where ads will be blocked (add domains like <code>ionmedia.tv</code>)</p>
+
+          <div class="list-editor">
+            <div class="list-input-row">
+              <input type="text" id="blacklistInput" class="text-input" placeholder="example.com">
+              <button class="btn-secondary" id="addBlacklist">Add</button>
+            </div>
+            <ul class="site-list" id="blacklistItems">
+              <!-- Items will be added here -->
+            </ul>
+          </div>
+        </div>
+
         <div class="settings-group">
           <h2 class="group-title">Whitelist</h2>
-          <p class="group-description">Sites where ads are allowed</p>
-          
+          <p class="group-description">Sites where ads are allowed (overrides protection)</p>
+
           <div class="list-editor">
             <div class="list-input-row">
               <input type="text" id="whitelistInput" class="text-input" placeholder="example.com">
@@ -323,11 +354,11 @@
             </ul>
           </div>
         </div>
-        
+
         <div class="settings-group">
           <h2 class="group-title">Custom Selectors</h2>
-          <p class="group-description">Add custom CSS selectors to block specific elements</p>
-          
+          <p class="group-description">Add custom CSS selectors to block specific elements on a domain</p>
+
           <div class="custom-rules-editor">
             <div class="rule-input-row">
               <input type="text" id="customDomain" class="text-input" placeholder="example.com">

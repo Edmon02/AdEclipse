@@ -39,7 +39,10 @@ async function initialize() {
     
     // Initialize rules
     await rules.initialize();
-    
+
+    // Sync declarative rules based on enabled state
+    await syncDeclarativeRules(settings.enabled);
+
     // Set up alarms for periodic tasks
     setupAlarms();
     
@@ -105,6 +108,8 @@ async function handleMessage(message, sender) {
     
     case 'UPDATE_SETTINGS':
       await storage.updateSettings(data);
+      const updatedSettings = await storage.getSettings();
+      await syncDeclarativeRules(updatedSettings.enabled);
       await updateBadge();
       return { success: true };
     
@@ -121,12 +126,28 @@ async function handleMessage(message, sender) {
       return { success: true };
     
     case 'GET_SITE_ENABLED':
-      const settings = await storage.getSettings();
-      const hostname = new URL(sender.url || sender.tab?.url).hostname;
+      const siteSettings = await storage.getSettings();
+      const siteHostname = new URL(sender.url || sender.tab?.url).hostname;
+      const isYouTubeSite = siteHostname.endsWith('youtube.com');
+
+      // Determine if blocking is enabled for this site:
+      // 1. Global must be enabled
+      // 2. Site must NOT be whitelisted
+      // 3. For non-YouTube sites in "manual" mode, site must be in blacklist
+      let siteEnabled = siteSettings.enabled && !siteSettings.whitelist.includes(siteHostname);
+
+      if (siteEnabled && !isYouTubeSite && siteSettings.websiteMode === 'manual') {
+        // In manual mode, only block on explicitly listed sites
+        const blacklist = siteSettings.blacklist || [];
+        siteEnabled = blacklist.some(domain =>
+          siteHostname === domain || siteHostname.endsWith('.' + domain)
+        );
+      }
+
       return {
-        enabled: settings.enabled && !settings.whitelist.includes(hostname),
-        mode: settings.mode,
-        blockTypes: settings.blockTypes
+        enabled: siteEnabled,
+        mode: siteSettings.mode,
+        blockTypes: siteSettings.blockTypes
       };
     
     case 'GET_SELECTORS':
@@ -207,6 +228,26 @@ async function handleBugReport(data) {
 }
 
 /**
+ * Enable or disable declarativeNetRequest rulesets based on global toggle
+ */
+async function syncDeclarativeRules(enabled) {
+  try {
+    if (enabled) {
+      await chrome.declarativeNetRequest.updateEnabledRulesets({
+        enableRulesetIds: ['adblock_rules']
+      });
+    } else {
+      await chrome.declarativeNetRequest.updateEnabledRulesets({
+        disableRulesetIds: ['adblock_rules']
+      });
+    }
+    log.debug('Declarative rules', enabled ? 'enabled' : 'disabled');
+  } catch (error) {
+    log.error('Failed to toggle declarative rules:', error);
+  }
+}
+
+/**
  * Update extension badge
  */
 async function updateBadge(tabId) {
@@ -229,9 +270,78 @@ async function updateBadge(tabId) {
 }
 
 /**
- * Handle tab updates
+ * Handle tab updates - inject content scripts conditionally
  */
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (changeInfo.status === 'loading' && tab.url) {
+    try {
+      // Skip non-http pages (chrome://, about:, chrome-extension://, etc.)
+      if (!tab.url.startsWith('http://') && !tab.url.startsWith('https://')) {
+        return;
+      }
+
+      const settings = await storage.getSettings();
+      const url = new URL(tab.url);
+      const hostname = url.hostname;
+      const isYouTube = hostname.endsWith('youtube.com');
+      let isEnabled = settings.enabled && !settings.whitelist?.includes(hostname);
+
+      // For non-YouTube sites in manual mode, check if the site is in the blacklist
+      if (isEnabled && !isYouTube && settings.websiteMode === 'manual') {
+        const blacklist = settings.blacklist || [];
+        isEnabled = blacklist.some(domain =>
+          hostname === domain || hostname.endsWith('.' + domain)
+        );
+      }
+
+      // Only inject scripts when the extension is enabled for this site
+      if (isEnabled) {
+        if (isYouTube && settings.youtube?.enabled !== false) {
+          // Inject YouTube main-world script
+          chrome.scripting.executeScript({
+            target: { tabId, allFrames: true },
+            files: ['src/content/youtube-mainworld.js'],
+            world: 'MAIN',
+            injectImmediately: true
+          }).catch(() => {});
+
+          // Inject YouTube isolated-world script + CSS
+          chrome.scripting.insertCSS({
+            target: { tabId, allFrames: true },
+            files: ['src/content/youtube.css']
+          }).catch(() => {});
+
+          chrome.scripting.executeScript({
+            target: { tabId, allFrames: true },
+            files: ['src/content/youtube.js'],
+            injectImmediately: true
+          }).catch(() => {});
+        } else if (!isYouTube) {
+          // Inject general ad-blocking CSS + JS for non-YouTube sites
+          chrome.scripting.insertCSS({
+            target: { tabId, allFrames: true },
+            files: ['src/content/general.css']
+          }).catch(() => {});
+
+          chrome.scripting.executeScript({
+            target: { tabId, allFrames: true },
+            files: ['src/content/general.js'],
+            injectImmediately: true
+          }).catch(() => {});
+        }
+
+        // Inject anti-adblock on all sites
+        chrome.scripting.executeScript({
+          target: { tabId, allFrames: true },
+          files: ['src/content/anti-adblock.js'],
+          injectImmediately: true
+        }).catch(() => {});
+      }
+    } catch (error) {
+      log.debug('Script injection error:', error.message);
+    }
+  }
+
   if (changeInfo.status === 'complete' && tab.url) {
     await updateBadge(tabId);
   }
