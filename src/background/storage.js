@@ -3,11 +3,13 @@
  * Handles persistent storage operations
  */
 
-const DEFAULT_SETTINGS = {
+import { migrateEnabledSites, normalizeHostnameList } from './site-utils.js';
+
+export const DEFAULT_SETTINGS = {
   enabled: true,
-  mode: 'balanced', // 'light', 'balanced', 'aggressive'
+  mode: 'balanced',
   debugMode: false,
-  
+
   // Block types
   blockTypes: {
     videoAds: true,
@@ -20,7 +22,7 @@ const DEFAULT_SETTINGS = {
     newsletterPopups: false,
     socialWidgets: false
   },
-  
+
   // YouTube-specific
   youtube: {
     enabled: true,
@@ -33,23 +35,19 @@ const DEFAULT_SETTINGS = {
     blockMerch: true,
     blockEndCards: false
   },
-  
-  // Site lists
-  whitelist: [],
-  blacklist: [],
 
-  // Website ad blocking mode: 'all' = block ads on all sites, 'manual' = only block on blacklisted sites
-  websiteMode: 'manual',
-  
+  // Explicit per-site activation.
+  enabledSites: [],
+
   // Performance
   performance: {
     lazyLoad: true,
     debounceMs: 100,
     maxMutations: 50,
     cacheEnabled: true,
-    useML: false // TensorFlow.js integration
+    useML: false
   },
-  
+
   // UI preferences
   ui: {
     showBadge: true,
@@ -57,7 +55,7 @@ const DEFAULT_SETTINGS = {
     darkMode: 'auto',
     compactMode: false
   },
-  
+
   // Update settings
   updates: {
     autoUpdate: true,
@@ -65,6 +63,49 @@ const DEFAULT_SETTINGS = {
     lastUpdate: null
   }
 };
+
+function sanitizeSettings(rawSettings = {}) {
+  const merged = deepMerge(DEFAULT_SETTINGS, rawSettings || {});
+
+  merged.enabledSites = migrateEnabledSites(rawSettings);
+
+  // Drop legacy activation fields after migration so runtime uses one model.
+  delete merged.whitelist;
+  delete merged.blacklist;
+  delete merged.websiteMode;
+
+  merged.enabledSites = normalizeHostnameList(merged.enabledSites);
+
+  return merged;
+}
+
+function deepMerge(target, source) {
+  if (!source || typeof source !== 'object' || Array.isArray(source)) {
+    return source === undefined ? target : source;
+  }
+
+  const output = Array.isArray(target) ? [...target] : { ...target };
+
+  for (const key of Object.keys(source)) {
+    const sourceValue = source[key];
+    const targetValue = output[key];
+
+    if (
+      sourceValue &&
+      typeof sourceValue === 'object' &&
+      !Array.isArray(sourceValue) &&
+      targetValue &&
+      typeof targetValue === 'object' &&
+      !Array.isArray(targetValue)
+    ) {
+      output[key] = deepMerge(targetValue, sourceValue);
+    } else {
+      output[key] = sourceValue;
+    }
+  }
+
+  return output;
+}
 
 export class StorageManager {
   constructor() {
@@ -86,7 +127,7 @@ export class StorageManager {
     
     try {
       const result = await chrome.storage.local.get('settings');
-      this.cache = result.settings || DEFAULT_SETTINGS;
+      this.cache = sanitizeSettings(result.settings || {});
       this.lastCacheTime = now;
       return this.cache;
     } catch (error) {
@@ -101,7 +142,7 @@ export class StorageManager {
   async updateSettings(updates) {
     try {
       const current = await this.getSettings();
-      const merged = this.deepMerge(current, updates);
+      const merged = sanitizeSettings(deepMerge(current, updates));
       await chrome.storage.local.set({ settings: merged });
       this.cache = merged;
       this.lastCacheTime = Date.now();
@@ -118,7 +159,12 @@ export class StorageManager {
     try {
       const existing = await chrome.storage.local.get('settings');
       if (!existing.settings) {
-        await chrome.storage.local.set({ settings: DEFAULT_SETTINGS });
+        await chrome.storage.local.set({ settings: sanitizeSettings(DEFAULT_SETTINGS) });
+      } else {
+        const sanitized = sanitizeSettings(existing.settings);
+        await chrome.storage.local.set({ settings: sanitized });
+        this.cache = sanitized;
+        this.lastCacheTime = Date.now();
       }
     } catch (error) {
       console.error('[StorageManager] Error initializing defaults:', error);
@@ -193,20 +239,4 @@ export class StorageManager {
     }
   }
   
-  /**
-   * Deep merge helper
-   */
-  deepMerge(target, source) {
-    const output = { ...target };
-    
-    for (const key of Object.keys(source)) {
-      if (source[key] instanceof Object && key in target) {
-        output[key] = this.deepMerge(target[key], source[key]);
-      } else {
-        output[key] = source[key];
-      }
-    }
-    
-    return output;
-  }
 }

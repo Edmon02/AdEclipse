@@ -241,8 +241,10 @@
         if (!player) return;
 
         // These methods exist on YouTube's internal player API (MAIN world only)
-        if (typeof player.skipAd === 'function') player.skipAd();
-        if (typeof player.cancelPlayback === 'function') player.cancelPlayback();
+        if (typeof player.skipAd === 'function') {
+          player.skipAd();
+          return;
+        }
 
         // Access internal player API for ad-specific control
         if (typeof player.getVideoData === 'function') {

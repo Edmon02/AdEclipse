@@ -3,22 +3,18 @@
  * Handles request blocking, stats tracking, and extension coordination
  */
 
-// Import utilities
 import { StorageManager } from './storage.js';
 import { StatsTracker } from './stats.js';
 import { RulesManager } from './rules.js';
+import { isSiteEnabled, listHasMatchingHostname, normalizeHostname } from './site-utils.js';
 
-// Initialize managers
 const storage = new StorageManager();
 const stats = new StatsTracker();
 const rules = new RulesManager();
 
-// Debug mode flag
 let DEBUG_MODE = false;
+let bundledNetworkRules = null;
 
-/**
- * Logger utility that respects debug mode
- */
 const log = {
   debug: (...args) => DEBUG_MODE && console.log('[AdEclipse]', ...args),
   info: (...args) => console.info('[AdEclipse]', ...args),
@@ -26,187 +22,231 @@ const log = {
   error: (...args) => console.error('[AdEclipse]', ...args)
 };
 
-/**
- * Extension initialization
- */
 async function initialize() {
   log.info('Initializing AdEclipse...');
-  
+
   try {
-    // Load settings
     const settings = await storage.getSettings();
     DEBUG_MODE = settings.debugMode || false;
-    
-    // Initialize rules
+
     await rules.initialize();
-
-    // Sync declarative rules based on enabled state
-    await syncDeclarativeRules(settings.enabled);
-
-    // Set up alarms for periodic tasks
+    await syncScopedNetworkRules(settings);
     setupAlarms();
-    
-    // Update badge
     await updateBadge();
-    
+
     log.info('AdEclipse initialized successfully');
   } catch (error) {
     log.error('Initialization error:', error);
   }
 }
 
-/**
- * Set up periodic alarms
- */
 function setupAlarms() {
-  // Update rules every 24 hours
   chrome.alarms.create('updateRules', { periodInMinutes: 1440 });
-  
-  // Sync stats every 5 minutes
   chrome.alarms.create('syncStats', { periodInMinutes: 5 });
 }
 
-// Listen for alarms
-chrome.alarms.onAlarm.addListener(async (alarm) => {
-  log.debug('Alarm triggered:', alarm.name);
-  
-  switch (alarm.name) {
-    case 'updateRules':
-      await rules.checkForUpdates();
-      break;
-    case 'syncStats':
-      await stats.sync();
-      break;
+async function getBundledNetworkRules(forceReload = false) {
+  if (bundledNetworkRules && !forceReload) {
+    return bundledNetworkRules;
   }
-});
 
-/**
- * Handle messages from content scripts and popup
- */
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  log.debug('Message received:', message.type, sender.tab?.id);
-  
-  handleMessage(message, sender)
-    .then(sendResponse)
-    .catch(error => {
-      log.error('Message handler error:', error);
-      sendResponse({ success: false, error: error.message });
+  try {
+    const response = await fetch(chrome.runtime.getURL('rules/declarative_rules.json'));
+    bundledNetworkRules = await response.json();
+    return bundledNetworkRules;
+  } catch (error) {
+    log.error('Failed to load bundled network rules:', error);
+    return [];
+  }
+}
+
+async function getCurrentScopedRules() {
+  if (chrome.declarativeNetRequest?.getSessionRules) {
+    return chrome.declarativeNetRequest.getSessionRules();
+  }
+
+  if (chrome.declarativeNetRequest?.getDynamicRules) {
+    return chrome.declarativeNetRequest.getDynamicRules();
+  }
+
+  return [];
+}
+
+async function updateScopedRules(payload) {
+  if (chrome.declarativeNetRequest?.updateSessionRules) {
+    return chrome.declarativeNetRequest.updateSessionRules(payload);
+  }
+
+  if (chrome.declarativeNetRequest?.updateDynamicRules) {
+    return chrome.declarativeNetRequest.updateDynamicRules(payload);
+  }
+
+  return undefined;
+}
+
+async function syncScopedNetworkRules(settings, forceReload = false) {
+  try {
+    const activeRules = await getCurrentScopedRules();
+    const removeRuleIds = activeRules.map((rule) => rule.id);
+    const enabledSites = settings?.enabled ? settings.enabledSites || [] : [];
+    let addRules = [];
+
+    if (enabledSites.length > 0) {
+      const baseRules = await getBundledNetworkRules(forceReload);
+      addRules = baseRules.map((rule) => ({
+        ...rule,
+        condition: {
+          ...rule.condition,
+          initiatorDomains: enabledSites
+        }
+      }));
+    }
+
+    await updateScopedRules({
+      removeRuleIds,
+      addRules
     });
-  
-  return true; // Keep channel open for async response
-});
 
-/**
- * Process incoming messages
- */
+    log.debug('Scoped network rules synced', addRules.length);
+  } catch (error) {
+    log.error('Failed to sync scoped network rules:', error);
+  }
+}
+
+function isYouTubeHost(hostname) {
+  return normalizeHostname(hostname).endsWith('youtube.com');
+}
+
+function getSiteStatus(hostname, settings) {
+  const normalizedHostname = normalizeHostname(hostname);
+  const added = listHasMatchingHostname(normalizedHostname, settings.enabledSites || []);
+  const enabled = added && settings.enabled && (!isYouTubeHost(normalizedHostname) || settings.youtube?.enabled !== false);
+
+  return {
+    hostname: normalizedHostname,
+    added,
+    enabled
+  };
+}
+
 async function handleMessage(message, sender) {
   const { type, data } = message;
-  
+
   switch (type) {
     case 'GET_SETTINGS':
-      return await storage.getSettings();
-    
-    case 'UPDATE_SETTINGS':
+      return storage.getSettings();
+
+    case 'UPDATE_SETTINGS': {
       await storage.updateSettings(data);
       const updatedSettings = await storage.getSettings();
-      await syncDeclarativeRules(updatedSettings.enabled);
+      await syncScopedNetworkRules(updatedSettings);
       await updateBadge();
-      return { success: true };
-    
+      return { success: true, settings: updatedSettings };
+    }
+
     case 'GET_STATS':
-      return await stats.getStats();
-    
+      return stats.getStats();
+
     case 'INCREMENT_BLOCKED':
       await stats.incrementBlocked(data.type, data.domain);
       await updateBadge(sender.tab?.id);
       return { success: true };
-    
+
     case 'AD_SKIPPED':
       await stats.adSkipped(data.duration);
       return { success: true };
-    
-    case 'GET_SITE_ENABLED':
+
+    case 'GET_SITE_ENABLED': {
       const siteSettings = await storage.getSettings();
-      const siteHostname = new URL(sender.url || sender.tab?.url).hostname;
-      const isYouTubeSite = siteHostname.endsWith('youtube.com');
-
-      // Determine if blocking is enabled for this site:
-      // 1. Global must be enabled
-      // 2. Site must NOT be whitelisted
-      // 3. For non-YouTube sites in "manual" mode, site must be in blacklist
-      let siteEnabled = siteSettings.enabled && !siteSettings.whitelist.includes(siteHostname);
-
-      if (siteEnabled && !isYouTubeSite && siteSettings.websiteMode === 'manual') {
-        // In manual mode, only block on explicitly listed sites
-        const blacklist = siteSettings.blacklist || [];
-        siteEnabled = blacklist.some(domain =>
-          siteHostname === domain || siteHostname.endsWith('.' + domain)
-        );
-      }
+      const siteSource = data?.hostname || sender.url || sender.tab?.url || '';
+      const status = getSiteStatus(siteSource, siteSettings);
 
       return {
-        enabled: siteEnabled,
+        enabled: status.enabled,
+        added: status.added,
+        hostname: status.hostname,
         mode: siteSettings.mode,
         blockTypes: siteSettings.blockTypes
       };
-    
+    }
+
     case 'GET_SELECTORS':
-      return await rules.getSelectorsForSite(data.hostname);
-    
+      return rules.getSelectorsForSite(data.hostname);
+
     case 'REPORT_BUG':
-      return await handleBugReport(data);
-    
+      return handleBugReport(data);
+
     case 'TOGGLE_SITE':
-      return await toggleSiteBlocking(data.hostname, data.enabled);
-    
+      return toggleSiteBlocking(data.hostname, data.enabled);
+
     case 'EXPORT_SETTINGS':
-      return await storage.exportAll();
-    
-    case 'IMPORT_SETTINGS':
+      return storage.exportAll();
+
+    case 'IMPORT_SETTINGS': {
       await storage.importAll(data);
-      return { success: true };
-    
+      const importedSettings = await storage.getSettings();
+      await syncScopedNetworkRules(importedSettings, true);
+      await updateBadge();
+      return { success: true, settings: importedSettings };
+    }
+
     case 'RESET_STATS':
       await stats.reset();
+      await updateBadge();
       return { success: true };
-    
+
     case 'GET_CUSTOM_RULES':
-      return await storage.getCustomRules();
-    
+      return storage.getCustomRules();
+
     case 'SAVE_CUSTOM_RULES':
       await storage.saveCustomRules(data);
       await rules.reloadRules();
       return { success: true };
-    
+
+    case 'CHECK_RULE_UPDATES': {
+      await rules.checkForUpdates();
+      const refreshedSettings = await storage.getSettings();
+      await syncScopedNetworkRules(refreshedSettings, true);
+      return {
+        success: true,
+        lastUpdate: refreshedSettings.updates?.lastUpdate || null
+      };
+    }
+
     default:
       log.warn('Unknown message type:', type);
       return { success: false, error: 'Unknown message type' };
   }
 }
 
-/**
- * Toggle blocking for a specific site
- */
 async function toggleSiteBlocking(hostname, enabled) {
   const settings = await storage.getSettings();
-  
-  if (enabled) {
-    // Remove from whitelist
-    settings.whitelist = settings.whitelist.filter(h => h !== hostname);
-  } else {
-    // Add to whitelist
-    if (!settings.whitelist.includes(hostname)) {
-      settings.whitelist.push(hostname);
-    }
+  const normalizedHostname = normalizeHostname(hostname);
+
+  if (!normalizedHostname) {
+    return { success: false, error: 'Invalid hostname' };
   }
-  
-  await storage.updateSettings({ whitelist: settings.whitelist });
-  return { success: true, whitelist: settings.whitelist };
+
+  const nextEnabledSites = settings.enabledSites.filter(
+    (domain) => !listHasMatchingHostname(normalizedHostname, [domain])
+  );
+
+  if (enabled) {
+    nextEnabledSites.push(normalizedHostname);
+  }
+
+  await storage.updateSettings({ enabledSites: nextEnabledSites });
+  const updatedSettings = await storage.getSettings();
+  await syncScopedNetworkRules(updatedSettings);
+  await updateBadge();
+
+  return {
+    success: true,
+    enabled,
+    enabledSites: updatedSettings.enabledSites
+  };
 }
 
-/**
- * Handle bug reports
- */
 async function handleBugReport(data) {
   const reportData = {
     timestamp: new Date().toISOString(),
@@ -216,88 +256,79 @@ async function handleBugReport(data) {
     description: data.description,
     logs: DEBUG_MODE ? data.logs : '[Debug mode disabled]'
   };
-  
+
   log.info('Bug report generated:', reportData);
-  
-  // In production, this would send to a server
-  // For now, just log it
+
   return {
     success: true,
     reportId: `AE-${Date.now()}`
   };
 }
 
-/**
- * Enable or disable declarativeNetRequest rulesets based on global toggle
- */
-async function syncDeclarativeRules(enabled) {
-  try {
-    if (enabled) {
-      await chrome.declarativeNetRequest.updateEnabledRulesets({
-        enableRulesetIds: ['adblock_rules']
-      });
-    } else {
-      await chrome.declarativeNetRequest.updateEnabledRulesets({
-        disableRulesetIds: ['adblock_rules']
-      });
-    }
-    log.debug('Declarative rules', enabled ? 'enabled' : 'disabled');
-  } catch (error) {
-    log.error('Failed to toggle declarative rules:', error);
-  }
-}
-
-/**
- * Update extension badge
- */
 async function updateBadge(tabId) {
   try {
     const settings = await storage.getSettings();
     const todayStats = await stats.getTodayStats();
-    
+
     if (!settings.enabled) {
       await chrome.action.setBadgeText({ text: 'OFF', tabId });
       await chrome.action.setBadgeBackgroundColor({ color: '#6B7280', tabId });
-    } else {
-      const count = todayStats.adsBlocked;
-      const text = count > 999 ? '999+' : count.toString();
-      await chrome.action.setBadgeText({ text, tabId });
-      await chrome.action.setBadgeBackgroundColor({ color: '#10B981', tabId });
+      return;
     }
+
+    if (settings.ui?.showBadge === false) {
+      await chrome.action.setBadgeText({ text: '', tabId });
+      return;
+    }
+
+    const count = todayStats.adsBlocked;
+    const text = count > 999 ? '999+' : count.toString();
+    await chrome.action.setBadgeText({ text, tabId });
+    await chrome.action.setBadgeBackgroundColor({ color: '#10B981', tabId });
   } catch (error) {
     log.error('Badge update error:', error);
   }
 }
 
-/**
- * Handle tab updates - inject content scripts conditionally
- */
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  log.debug('Alarm triggered:', alarm.name);
+
+  switch (alarm.name) {
+    case 'updateRules':
+      await rules.checkForUpdates();
+      await syncScopedNetworkRules(await storage.getSettings(), true);
+      break;
+    case 'syncStats':
+      await stats.sync();
+      break;
+  }
+});
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  log.debug('Message received:', message.type, sender.tab?.id);
+
+  handleMessage(message, sender)
+    .then(sendResponse)
+    .catch((error) => {
+      log.error('Message handler error:', error);
+      sendResponse({ success: false, error: error.message });
+    });
+
+  return true;
+});
+
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (changeInfo.status === 'loading' && tab.url) {
     try {
-      // Skip non-http pages (chrome://, about:, chrome-extension://, etc.)
       if (!tab.url.startsWith('http://') && !tab.url.startsWith('https://')) {
         return;
       }
 
       const settings = await storage.getSettings();
-      const url = new URL(tab.url);
-      const hostname = url.hostname;
-      const isYouTube = hostname.endsWith('youtube.com');
-      let isEnabled = settings.enabled && !settings.whitelist?.includes(hostname);
+      const siteStatus = getSiteStatus(tab.url, settings);
 
-      // For non-YouTube sites in manual mode, check if the site is in the blacklist
-      if (isEnabled && !isYouTube && settings.websiteMode === 'manual') {
-        const blacklist = settings.blacklist || [];
-        isEnabled = blacklist.some(domain =>
-          hostname === domain || hostname.endsWith('.' + domain)
-        );
-      }
-
-      // Only inject scripts when the extension is enabled for this site
-      if (isEnabled) {
-        if (isYouTube && settings.youtube?.enabled !== false) {
-          // Inject YouTube main-world script
+      if (siteStatus.enabled) {
+        if (isYouTubeHost(siteStatus.hostname)) {
           chrome.scripting.executeScript({
             target: { tabId, allFrames: true },
             files: ['src/content/youtube-mainworld.js'],
@@ -305,7 +336,6 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
             injectImmediately: true
           }).catch(() => {});
 
-          // Inject YouTube isolated-world script + CSS
           chrome.scripting.insertCSS({
             target: { tabId, allFrames: true },
             files: ['src/content/youtube.css']
@@ -316,8 +346,21 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
             files: ['src/content/youtube.js'],
             injectImmediately: true
           }).catch(() => {});
-        } else if (!isYouTube) {
-          // Inject general ad-blocking CSS + JS for non-YouTube sites
+        } else {
+          chrome.scripting.executeScript({
+            target: { tabId, allFrames: true },
+            files: ['src/content/general-mainworld.js'],
+            world: 'MAIN',
+            injectImmediately: true
+          }).catch(() => {});
+
+          chrome.scripting.executeScript({
+            target: { tabId, allFrames: true },
+            files: ['src/content/anti-adblock.js'],
+            world: 'MAIN',
+            injectImmediately: true
+          }).catch(() => {});
+
           chrome.scripting.insertCSS({
             target: { tabId, allFrames: true },
             files: ['src/content/general.css']
@@ -329,13 +372,6 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
             injectImmediately: true
           }).catch(() => {});
         }
-
-        // Inject anti-adblock on all sites
-        chrome.scripting.executeScript({
-          target: { tabId, allFrames: true },
-          files: ['src/content/anti-adblock.js'],
-          injectImmediately: true
-        }).catch(() => {});
       }
     } catch (error) {
       log.debug('Script injection error:', error.message);
@@ -347,50 +383,19 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   }
 });
 
-/**
- * Handle extension install/update
- */
 chrome.runtime.onInstalled.addListener(async (details) => {
   log.info('Extension installed/updated:', details.reason);
-  
+
   if (details.reason === 'install') {
-    // Set default settings
     await storage.initializeDefaults();
-    
-    // Open welcome page
+
     chrome.tabs.create({
       url: chrome.runtime.getURL('src/options/options.html?welcome=true')
     });
   } else if (details.reason === 'update') {
-    // Check for rule updates
     await rules.checkForUpdates();
   }
-  
-  await initialize();
-});
 
-/**
- * Handle extension startup (browser restart)
- */
-chrome.runtime.onStartup.addListener(async () => {
-  await initialize();
-});
-
-/**
- * Listen for declarativeNetRequest blocked events (for stats)
- */
-if (chrome.declarativeNetRequest?.onRuleMatchedDebug) {
-  chrome.declarativeNetRequest.onRuleMatchedDebug.addListener((info) => {
-    log.debug('Rule matched:', info.rule.ruleId, info.request.url);
-    stats.incrementBlocked('network', new URL(info.request.url).hostname);
-  });
-}
-
-/**
- * Context menu for quick actions
- */
-chrome.runtime.onInstalled.addListener(() => {
-  // Only create context menus if the API is available
   if (chrome.contextMenus) {
     try {
       chrome.contextMenus.create({
@@ -398,7 +403,7 @@ chrome.runtime.onInstalled.addListener(() => {
         title: 'Toggle AdEclipse on this site',
         contexts: ['page']
       });
-      
+
       chrome.contextMenus.create({
         id: 'adeclipse-report',
         title: 'Report missed ad',
@@ -408,21 +413,31 @@ chrome.runtime.onInstalled.addListener(() => {
       console.warn('[AdEclipse] Could not create context menus:', error);
     }
   }
+
+  await initialize();
 });
+
+chrome.runtime.onStartup.addListener(async () => {
+  await initialize();
+});
+
+if (chrome.declarativeNetRequest?.onRuleMatchedDebug) {
+  chrome.declarativeNetRequest.onRuleMatchedDebug.addListener((info) => {
+    log.debug('Rule matched:', info.rule.ruleId, info.request.url);
+    stats.incrementBlocked('network', normalizeHostname(info.request.url));
+  });
+}
 
 if (chrome.contextMenus?.onClicked) {
   chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     try {
       if (info.menuItemId === 'adeclipse-toggle') {
-        const hostname = new URL(tab.url).hostname;
+        const hostname = normalizeHostname(tab?.url);
         const settings = await storage.getSettings();
-        const isWhitelisted = settings.whitelist?.includes(hostname) || false;
-        await toggleSiteBlocking(hostname, isWhitelisted);
-        
-        // Reload the tab
+        const currentlyEnabled = isSiteEnabled(hostname, settings);
+        await toggleSiteBlocking(hostname, !currentlyEnabled);
         chrome.tabs.reload(tab.id);
       } else if (info.menuItemId === 'adeclipse-report') {
-        // Open report dialog
         chrome.tabs.sendMessage(tab.id, { type: 'SHOW_REPORT_DIALOG' });
       }
     } catch (error) {
@@ -431,5 +446,4 @@ if (chrome.contextMenus?.onClicked) {
   });
 }
 
-// Initialize on load
 initialize();

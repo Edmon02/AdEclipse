@@ -75,6 +75,9 @@
     // Set up dedicated click-jack overlay monitor (polls & observes)
     setupClickjackMonitor();
 
+    // Detect intercepting overlays at click time before they can redirect.
+    setupEventShield();
+
     // Handle lazy-loaded content
     setupScrollListener();
     
@@ -453,12 +456,12 @@
   function removeClickjackOverlays() {
     const viewW = window.innerWidth;
     const viewH = window.innerHeight;
-    // Minimum coverage to be suspicious: 40% of viewport area
-    const minArea = viewW * viewH * 0.4;
+    // Minimum coverage to be suspicious: 15% of viewport area
+    const minArea = viewW * viewH * 0.15;
 
-    // Check all absolutely/fixed positioned elements with very high z-index
+    // Check common overlay containers, including iframes used for click-jacking.
     const candidates = document.querySelectorAll(
-      'div, span, section, aside, a'
+      'div, span, section, aside, a, iframe'
     );
 
     for (const el of candidates) {
@@ -469,7 +472,7 @@
       if (position !== 'absolute' && position !== 'fixed') continue;
 
       const zIndex = parseInt(style.zIndex, 10);
-      if (isNaN(zIndex) || zIndex < 9999) continue;
+      if (isNaN(zIndex) || zIndex < 1000) continue;
 
       const pointerEvents = style.pointerEvents;
       // Elements with pointer-events:none at the top level are not dangerous
@@ -511,9 +514,10 @@
     const hasVisibleBg = bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)';
     const hasVisibleBgImg = bgImage && bgImage !== 'none';
     const hasDirectText = getDirectTextContent(el).trim().length > 0;
+    const opacity = parseFloat(style.opacity || '1');
 
     // If it has visible content, it might be a real element
-    if (hasVisibleBg || hasVisibleBgImg || hasDirectText) {
+    if ((hasVisibleBg || hasVisibleBgImg || hasDirectText) && opacity > 0.08) {
       return false;
     }
 
@@ -572,9 +576,10 @@
       const hasBg = bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)';
       const bgImg = cs.backgroundImage;
       const hasBgImg = bgImg && bgImg !== 'none';
+      const opacity = parseFloat(cs.opacity || '1');
 
       // Empty overlay child covering a large portion = click-jacking
-      if (text.length === 0 && !hasBg && !hasBgImg) {
+      if (text.length === 0 && !hasBg && !hasBgImg && opacity <= 0.08) {
         log.debug('Removing click-jack child:', child.className || child.tagName);
         child.remove();
         state.adsBlocked++;
@@ -600,6 +605,67 @@
       }
     }
     return text;
+  }
+
+  /**
+   * Event-time shield for transparent click interceptors.
+   * If we detect a suspicious overlay in the click stack, remove it and
+   * cancel the current gesture so the user can click the real element.
+   */
+  function setupEventShield() {
+    const shieldHandler = (event) => {
+      if (!event.isTrusted || typeof event.clientX !== 'number' || typeof event.clientY !== 'number') {
+        return;
+      }
+
+      const stack = document.elementsFromPoint(event.clientX, event.clientY) || [];
+      let removedAny = false;
+
+      for (const el of stack) {
+        if (!el || el === document.documentElement || el === document.body) continue;
+        if (!isEventInterceptor(el)) continue;
+
+        log.debug('Removed event interceptor:', el.className || el.tagName);
+        state.elementsRemoved.add(el);
+        el.remove();
+        removedAny = true;
+      }
+
+      if (removedAny) {
+        state.adsBlocked++;
+        notifyAdBlocked();
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
+    };
+
+    ['pointerdown', 'mousedown', 'click', 'auxclick', 'touchstart'].forEach((type) => {
+      window.addEventListener(type, shieldHandler, true);
+    });
+  }
+
+  function isEventInterceptor(el) {
+    const style = getComputedStyle(el);
+    if (style.pointerEvents === 'none') return false;
+
+    const position = style.position;
+    if (!['fixed', 'absolute', 'sticky'].includes(position)) return false;
+
+    const zIndex = parseInt(style.zIndex, 10);
+    if (!Number.isFinite(zIndex) || zIndex < 1000) return false;
+
+    const rect = el.getBoundingClientRect();
+    const area = rect.width * rect.height;
+    const minArea = window.innerWidth * window.innerHeight * 0.05;
+    if (area < minArea) return false;
+
+    const bg = style.backgroundColor;
+    const hasBg = bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)';
+    const hasBgImg = style.backgroundImage && style.backgroundImage !== 'none';
+    const opacity = parseFloat(style.opacity || '1');
+    const directText = getDirectTextContent(el).trim();
+
+    return !hasBg && !hasBgImg && directText.length === 0 && opacity <= 0.08;
   }
 
   /**

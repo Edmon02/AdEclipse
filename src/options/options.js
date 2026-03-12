@@ -7,111 +7,129 @@ class OptionsPage {
   constructor() {
     this.settings = null;
     this.stats = null;
+    this.customRules = { domains: [], selectors: {} };
     this.init();
   }
 
   async init() {
-    await this.loadSettings();
-    await this.loadStats();
+    await Promise.all([
+      this.loadSettings(),
+      this.loadStats(),
+      this.loadCustomRules()
+    ]);
+
     this.setupNavigation();
     this.setupEventListeners();
     this.populateUI();
     this.applyTheme();
   }
 
-  // Settings Management
   async loadSettings() {
     try {
-      const response = await chrome.runtime.sendMessage({ type: 'getSettings' });
-      this.settings = response || this.getDefaultSettings();
+      this.settings = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
     } catch (error) {
       console.error('Failed to load settings:', error);
       this.settings = this.getDefaultSettings();
     }
   }
 
+  async loadStats() {
+    try {
+      this.stats = await chrome.runtime.sendMessage({ type: 'GET_STATS' });
+    } catch (error) {
+      console.error('Failed to load stats:', error);
+      this.stats = {
+        allTime: {
+          adsBlocked: 0,
+          timeSaved: 0,
+          dataSaved: 0,
+          byType: {}
+        }
+      };
+    }
+  }
+
+  async loadCustomRules() {
+    try {
+      this.customRules = await chrome.runtime.sendMessage({ type: 'GET_CUSTOM_RULES' });
+    } catch (error) {
+      console.error('Failed to load custom rules:', error);
+      this.customRules = { domains: [], selectors: {} };
+    }
+  }
+
   getDefaultSettings() {
     return {
       enabled: true,
-      blockingMode: 'standard',
-      theme: 'system',
+      mode: 'balanced',
       blockTypes: {
         videoAds: true,
-        overlayAds: true,
         bannerAds: true,
         sponsoredContent: true,
         popups: true,
-        tracking: true
+        trackers: true,
+        cookieBanners: false
       },
       youtube: {
+        enabled: true,
         autoSkip: true,
         speedUpAds: true,
         muteAds: true,
         blockOverlays: true,
-        skipDelay: 500,
-        speedMultiplier: 16
+        blockMasthead: true,
+        blockSponsored: true,
+        blockMerch: true
       },
-      whitelist: [],
-      blacklist: [],
-      websiteMode: 'manual',
-      customRules: [],
+      enabledSites: [],
       performance: {
-        observerDebounce: 100,
-        enablePerformanceMode: false
+        lazyLoad: true,
+        cacheEnabled: true,
+        debounceMs: 100,
+        useML: false
       },
-      ml: {
-        enabled: false
+      ui: {
+        darkMode: 'auto',
+        showBadge: true
       },
       updates: {
-        autoUpdate: true
+        autoUpdate: true,
+        lastUpdate: null
       },
-      showNotifications: true,
-      debug: false
+      debugMode: false
     };
   }
 
-  async saveSettings() {
+  async persistSettings() {
     try {
-      await chrome.runtime.sendMessage({
-        type: 'saveSettings',
-        settings: this.settings
+      const response = await chrome.runtime.sendMessage({
+        type: 'UPDATE_SETTINGS',
+        data: this.settings
       });
-      this.showToast('Settings saved');
+
+      this.settings = response?.settings || this.settings;
+      this.populateUI();
+      this.applyTheme();
     } catch (error) {
       console.error('Failed to save settings:', error);
       this.showToast('Failed to save settings', 'error');
     }
   }
 
-  async loadStats() {
-    try {
-      const response = await chrome.runtime.sendMessage({ type: 'getStats' });
-      this.stats = response || { blocked: 0, session: { blocked: 0 }, today: { blocked: 0 } };
-    } catch (error) {
-      console.error('Failed to load stats:', error);
-      this.stats = { blocked: 0, session: { blocked: 0 }, today: { blocked: 0 } };
-    }
-  }
-
-  // Navigation
   setupNavigation() {
     const navItems = document.querySelectorAll('.nav-item');
     const sections = document.querySelectorAll('.settings-section');
 
-    navItems.forEach(item => {
-      item.addEventListener('click', (e) => {
-        e.preventDefault();
-        const target = item.getAttribute('data-section');
+    navItems.forEach((item) => {
+      item.addEventListener('click', (event) => {
+        event.preventDefault();
 
-        // Update nav
-        navItems.forEach(nav => nav.classList.remove('active'));
+        const target = item.dataset.section;
+        navItems.forEach((nav) => nav.classList.remove('active'));
+        sections.forEach((section) => section.classList.remove('active'));
+
         item.classList.add('active');
-
-        // Update sections
-        sections.forEach(section => section.classList.remove('active'));
         document.getElementById(target)?.classList.add('active');
 
-        // Update stats if switching to stats section
         if (target === 'stats') {
           this.updateStatsUI();
         }
@@ -119,67 +137,75 @@ class OptionsPage {
     });
   }
 
-  // Event Listeners
   setupEventListeners() {
-    // General Settings
-    this.bindToggle('enableProtection', 'enabled');
-    this.bindSelect('blockingMode', 'blockingMode');
-    this.bindSelect('theme', 'theme');
-    
-    // Block Types
-    this.bindToggle('blockVideoAds', ['blockTypes', 'videoAds']);
-    this.bindToggle('blockOverlayAds', ['blockTypes', 'overlayAds']);
-    this.bindToggle('blockBannerAds', ['blockTypes', 'bannerAds']);
+    this.bindToggle('enabledToggle', 'enabled');
+    this.bindSelect('modeSelect', 'mode');
+    this.bindSelect('themeSelect', ['ui', 'darkMode']);
+    this.bindToggle('showBadge', ['ui', 'showBadge']);
+
+    this.bindToggle('blockVideo', ['blockTypes', 'videoAds']);
+    this.bindToggle('blockBanner', ['blockTypes', 'bannerAds']);
     this.bindToggle('blockSponsored', ['blockTypes', 'sponsoredContent']);
     this.bindToggle('blockPopups', ['blockTypes', 'popups']);
-    this.bindToggle('blockTracking', ['blockTypes', 'tracking']);
+    this.bindToggle('blockTrackers', ['blockTypes', 'trackers']);
+    this.bindToggle('blockCookies', ['blockTypes', 'cookieBanners']);
 
-    // YouTube Settings
-    this.bindToggle('autoSkipAds', ['youtube', 'autoSkip']);
-    this.bindToggle('speedUpAds', ['youtube', 'speedUpAds']);
-    this.bindToggle('muteAds', ['youtube', 'muteAds']);
-    this.bindToggle('blockYTOverlays', ['youtube', 'blockOverlays']);
-    this.bindNumber('skipDelay', ['youtube', 'skipDelay']);
-    this.bindSelect('speedMultiplier', ['youtube', 'speedMultiplier']);
+    this.bindToggle('ytEnabled', ['youtube', 'enabled']);
+    this.bindToggle('ytAutoSkip', ['youtube', 'autoSkip']);
+    this.bindToggle('ytSpeedUp', ['youtube', 'speedUpAds']);
+    this.bindToggle('ytMute', ['youtube', 'muteAds']);
+    this.bindToggle('ytOverlays', ['youtube', 'blockOverlays']);
+    this.bindToggle('ytMasthead', ['youtube', 'blockMasthead']);
+    this.bindToggle('ytSponsored', ['youtube', 'blockSponsored']);
+    this.bindToggle('ytMerch', ['youtube', 'blockMerch']);
 
-    // Advanced Settings
-    this.bindNumber('observerDebounce', ['performance', 'observerDebounce']);
-    this.bindToggle('performanceMode', ['performance', 'enablePerformanceMode']);
-    this.bindToggle('enableML', ['ml', 'enabled']);
+    this.bindToggle('lazyLoad', ['performance', 'lazyLoad']);
+    this.bindToggle('cacheEnabled', ['performance', 'cacheEnabled']);
+    this.bindNumber('debounceMs', ['performance', 'debounceMs']);
+    this.bindToggle('useML', ['performance', 'useML']);
     this.bindToggle('autoUpdate', ['updates', 'autoUpdate']);
-    this.bindToggle('debugMode', 'debug');
+    this.bindToggle('debugMode', 'debugMode');
 
-    // Whitelist Management
-    this.setupWhitelistEditor();
+    const websiteModeSelect = document.getElementById('websiteModeSelect');
+    if (websiteModeSelect) {
+      websiteModeSelect.disabled = true;
+      websiteModeSelect.addEventListener('change', () => {
+        websiteModeSelect.value = 'explicit';
+      });
+    }
 
-    // Blacklist (Protected Sites) Management
-    this.setupBlacklistEditor();
-
-    // Website Mode
-    this.setupWebsiteMode();
-
-    // Custom Rules Management
-    this.setupCustomRulesEditor();
-
-    // Import/Export
-    document.getElementById('exportSettings')?.addEventListener('click', () => this.exportSettings());
-    document.getElementById('importSettings')?.addEventListener('click', () => this.showImportDialog());
-    document.getElementById('resetSettings')?.addEventListener('click', () => this.resetSettings());
-    document.getElementById('clearStats')?.addEventListener('click', () => this.clearStats());
-
-    // Theme changes
-    document.getElementById('theme')?.addEventListener('change', () => {
-      this.applyTheme();
+    document.getElementById('addBlacklist')?.addEventListener('click', () => this.addEnabledSite());
+    document.getElementById('blacklistInput')?.addEventListener('keypress', (event) => {
+      if (event.key === 'Enter') {
+        this.addEnabledSite();
+      }
     });
+
+    document.getElementById('addCustomRule')?.addEventListener('click', () => this.addCustomRule());
+    document.getElementById('customSelector')?.addEventListener('keypress', (event) => {
+      if (event.key === 'Enter') {
+        this.addCustomRule();
+      }
+    });
+
+    document.getElementById('resetStats')?.addEventListener('click', () => this.resetStats());
+    document.getElementById('checkUpdates')?.addEventListener('click', () => this.checkForRuleUpdates());
+    document.getElementById('exportSettings')?.addEventListener('click', () => this.exportSettings());
+    document.getElementById('importSettings')?.addEventListener('click', () => {
+      document.getElementById('importFile')?.click();
+    });
+    document.getElementById('importFile')?.addEventListener('change', (event) => this.importSettings(event));
+
+    document.getElementById('themeSelect')?.addEventListener('change', () => this.applyTheme());
   }
 
   bindToggle(elementId, settingPath) {
     const element = document.getElementById(elementId);
     if (!element) return;
 
-    element.addEventListener('change', () => {
+    element.addEventListener('change', async () => {
       this.setSetting(settingPath, element.checked);
-      this.saveSettings();
+      await this.persistSettings();
     });
   }
 
@@ -187,10 +213,9 @@ class OptionsPage {
     const element = document.getElementById(elementId);
     if (!element) return;
 
-    element.addEventListener('change', () => {
-      const value = element.value;
-      this.setSetting(settingPath, value);
-      this.saveSettings();
+    element.addEventListener('change', async () => {
+      this.setSetting(settingPath, element.value);
+      await this.persistSettings();
     });
   }
 
@@ -198,20 +223,23 @@ class OptionsPage {
     const element = document.getElementById(elementId);
     if (!element) return;
 
-    element.addEventListener('change', () => {
-      const value = parseInt(element.value, 10);
-      if (!isNaN(value)) {
-        this.setSetting(settingPath, value);
-        this.saveSettings();
+    element.addEventListener('change', async () => {
+      const nextValue = parseInt(element.value, 10);
+      if (Number.isNaN(nextValue)) {
+        return;
       }
+
+      this.setSetting(settingPath, nextValue);
+      await this.persistSettings();
     });
   }
 
   getSetting(path) {
     if (typeof path === 'string') {
-      return this.settings[path];
+      return this.settings?.[path];
     }
-    return path.reduce((obj, key) => obj?.[key], this.settings);
+
+    return path.reduce((value, key) => value?.[key], this.settings);
   }
 
   setSetting(path, value) {
@@ -219,224 +247,127 @@ class OptionsPage {
       this.settings[path] = value;
       return;
     }
-    
-    let obj = this.settings;
-    for (let i = 0; i < path.length - 1; i++) {
-      if (!obj[path[i]]) obj[path[i]] = {};
-      obj = obj[path[i]];
+
+    let cursor = this.settings;
+    for (let index = 0; index < path.length - 1; index += 1) {
+      const key = path[index];
+      if (!cursor[key] || typeof cursor[key] !== 'object') {
+        cursor[key] = {};
+      }
+      cursor = cursor[key];
     }
-    obj[path[path.length - 1]] = value;
+
+    cursor[path[path.length - 1]] = value;
   }
 
-  // UI Population
-  populateUI() {
-    // General
-    this.setToggleValue('enableProtection', this.settings.enabled);
-    this.setSelectValue('blockingMode', this.settings.blockingMode);
-    this.setSelectValue('theme', this.settings.theme);
+  normalizeHostname(input) {
+    if (!input) return '';
 
-    // Block Types
-    this.setToggleValue('blockVideoAds', this.settings.blockTypes?.videoAds);
-    this.setToggleValue('blockOverlayAds', this.settings.blockTypes?.overlayAds);
-    this.setToggleValue('blockBannerAds', this.settings.blockTypes?.bannerAds);
+    try {
+      return new URL(input).hostname.replace(/^www\./, '').toLowerCase();
+    } catch (_) {
+      return String(input)
+        .trim()
+        .toLowerCase()
+        .replace(/^[a-z]+:\/\//, '')
+        .replace(/^www\./, '')
+        .split('/')[0]
+        .split(':')[0]
+        .replace(/\.+$/, '');
+    }
+  }
+
+  populateUI() {
+    this.setToggleValue('enabledToggle', this.settings.enabled);
+    this.setSelectValue('modeSelect', this.settings.mode);
+    this.setSelectValue('themeSelect', this.settings.ui?.darkMode || 'auto');
+    this.setToggleValue('showBadge', this.settings.ui?.showBadge);
+
+    this.setToggleValue('blockVideo', this.settings.blockTypes?.videoAds);
+    this.setToggleValue('blockBanner', this.settings.blockTypes?.bannerAds);
     this.setToggleValue('blockSponsored', this.settings.blockTypes?.sponsoredContent);
     this.setToggleValue('blockPopups', this.settings.blockTypes?.popups);
-    this.setToggleValue('blockTracking', this.settings.blockTypes?.tracking);
+    this.setToggleValue('blockTrackers', this.settings.blockTypes?.trackers);
+    this.setToggleValue('blockCookies', this.settings.blockTypes?.cookieBanners);
 
-    // YouTube
-    this.setToggleValue('autoSkipAds', this.settings.youtube?.autoSkip);
-    this.setToggleValue('speedUpAds', this.settings.youtube?.speedUpAds);
-    this.setToggleValue('muteAds', this.settings.youtube?.muteAds);
-    this.setToggleValue('blockYTOverlays', this.settings.youtube?.blockOverlays);
-    this.setNumberValue('skipDelay', this.settings.youtube?.skipDelay);
-    this.setSelectValue('speedMultiplier', String(this.settings.youtube?.speedMultiplier || 16));
+    this.setToggleValue('ytEnabled', this.settings.youtube?.enabled);
+    this.setToggleValue('ytAutoSkip', this.settings.youtube?.autoSkip);
+    this.setToggleValue('ytSpeedUp', this.settings.youtube?.speedUpAds);
+    this.setToggleValue('ytMute', this.settings.youtube?.muteAds);
+    this.setToggleValue('ytOverlays', this.settings.youtube?.blockOverlays);
+    this.setToggleValue('ytMasthead', this.settings.youtube?.blockMasthead);
+    this.setToggleValue('ytSponsored', this.settings.youtube?.blockSponsored);
+    this.setToggleValue('ytMerch', this.settings.youtube?.blockMerch);
 
-    // Advanced
-    this.setNumberValue('observerDebounce', this.settings.performance?.observerDebounce);
-    this.setToggleValue('performanceMode', this.settings.performance?.enablePerformanceMode);
-    this.setToggleValue('enableML', this.settings.ml?.enabled);
+    this.setToggleValue('lazyLoad', this.settings.performance?.lazyLoad);
+    this.setToggleValue('cacheEnabled', this.settings.performance?.cacheEnabled);
+    this.setNumberValue('debounceMs', this.settings.performance?.debounceMs);
+    this.setToggleValue('useML', this.settings.performance?.useML);
     this.setToggleValue('autoUpdate', this.settings.updates?.autoUpdate);
-    this.setToggleValue('debugMode', this.settings.debug);
+    this.setToggleValue('debugMode', this.settings.debugMode);
 
-    // Whitelist
-    this.renderWhitelist();
+    this.setSelectValue('websiteModeSelect', 'explicit');
+    document.getElementById('lastUpdateTime').textContent = this.settings.updates?.lastUpdate || 'Never';
 
-    // Blacklist (Protected Sites)
-    this.renderBlacklist();
-    this.setSelectValue('websiteModeSelect', this.settings.websiteMode || 'manual');
-    this.updateProtectedSitesVisibility();
-
-    // Custom Rules
+    this.renderEnabledSites();
     this.renderCustomRules();
-
-    // Stats
     this.updateStatsUI();
   }
 
   setToggleValue(elementId, value) {
     const element = document.getElementById(elementId);
-    if (element) element.checked = !!value;
+    if (element) {
+      element.checked = !!value;
+    }
   }
 
   setSelectValue(elementId, value) {
     const element = document.getElementById(elementId);
-    if (element && value !== undefined) element.value = value;
+    if (element && value !== undefined) {
+      element.value = value;
+    }
   }
 
   setNumberValue(elementId, value) {
     const element = document.getElementById(elementId);
-    if (element && value !== undefined) element.value = value;
-  }
-
-  // Whitelist Editor
-  setupWhitelistEditor() {
-    const addBtn = document.getElementById('addWhitelist');
-    const input = document.getElementById('whitelistInput');
-
-    addBtn?.addEventListener('click', () => {
-      this.addWhitelistEntry();
-    });
-
-    input?.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') {
-        this.addWhitelistEntry();
-      }
-    });
-  }
-
-  addWhitelistEntry() {
-    const input = document.getElementById('whitelistInput');
-    const site = input?.value.trim();
-    
-    if (!site) return;
-    
-    // Normalize domain
-    let domain = site.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0];
-    
-    if (!this.settings.whitelist) {
-      this.settings.whitelist = [];
+    if (element && value !== undefined) {
+      element.value = value;
     }
-    
-    if (!this.settings.whitelist.includes(domain)) {
-      this.settings.whitelist.push(domain);
-      this.saveSettings();
-      this.renderWhitelist();
-    }
-    
-    input.value = '';
   }
 
-  removeWhitelistEntry(domain) {
-    this.settings.whitelist = this.settings.whitelist.filter(d => d !== domain);
-    this.saveSettings();
-    this.renderWhitelist();
-  }
+  async addEnabledSite() {
+    const input = document.getElementById('blacklistInput');
+    const domain = this.normalizeHostname(input?.value);
 
-  renderWhitelist() {
-    const list = document.getElementById('whitelistList');
-    if (!list) return;
-
-    const whitelist = this.settings.whitelist || [];
-    
-    if (whitelist.length === 0) {
-      list.innerHTML = '<li class="site-list-item"><span style="color: var(--text-muted)">No sites whitelisted</span></li>';
+    if (!domain) {
       return;
     }
 
-    list.innerHTML = whitelist.map(domain => `
-      <li class="site-list-item">
-        <span>${this.escapeHtml(domain)}</span>
-        <button class="remove-btn" data-domain="${this.escapeHtml(domain)}">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M18 6L6 18M6 6l12 12"/>
-          </svg>
-        </button>
-      </li>
-    `).join('');
-
-    // Add remove handlers
-    list.querySelectorAll('.remove-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        this.removeWhitelistEntry(btn.dataset.domain);
-      });
-    });
-  }
-
-  // Website Mode
-  setupWebsiteMode() {
-    const select = document.getElementById('websiteModeSelect');
-    if (!select) return;
-
-    select.addEventListener('change', () => {
-      this.settings.websiteMode = select.value;
-      this.saveSettings();
-      this.updateProtectedSitesVisibility();
-    });
-  }
-
-  updateProtectedSitesVisibility() {
-    const group = document.getElementById('protectedSitesGroup');
-    if (!group) return;
-    // Show the protected sites list always, but highlight when in manual mode
-    group.style.opacity = this.settings.websiteMode === 'manual' ? '1' : '0.5';
-  }
-
-  // Blacklist (Protected Sites) Editor
-  setupBlacklistEditor() {
-    const addBtn = document.getElementById('addBlacklist');
-    const input = document.getElementById('blacklistInput');
-
-    addBtn?.addEventListener('click', () => {
-      this.addBlacklistEntry();
-    });
-
-    input?.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') {
-        this.addBlacklistEntry();
-      }
-    });
-  }
-
-  addBlacklistEntry() {
-    const input = document.getElementById('blacklistInput');
-    const site = input?.value.trim();
-
-    if (!site) return;
-
-    // Normalize domain
-    let domain = site.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0];
-
-    if (!this.settings.blacklist) {
-      this.settings.blacklist = [];
-    }
-
-    if (!this.settings.blacklist.includes(domain)) {
-      this.settings.blacklist.push(domain);
-      this.saveSettings();
-      this.renderBlacklist();
-    }
-
+    const nextSites = new Set(this.settings.enabledSites || []);
+    nextSites.add(domain);
+    this.settings.enabledSites = [...nextSites];
     input.value = '';
+
+    await this.persistSettings();
+    this.showToast(`Added ${domain}`);
   }
 
-  removeBlacklistEntry(domain) {
-    this.settings.blacklist = this.settings.blacklist.filter(d => d !== domain);
-    this.saveSettings();
-    this.renderBlacklist();
+  async removeEnabledSite(domain) {
+    this.settings.enabledSites = (this.settings.enabledSites || []).filter((item) => item !== domain);
+    await this.persistSettings();
   }
 
-  renderBlacklist() {
+  renderEnabledSites() {
     const list = document.getElementById('blacklistItems');
     if (!list) return;
 
-    const blacklist = this.settings.blacklist || [];
-
-    if (blacklist.length === 0) {
+    const enabledSites = this.settings.enabledSites || [];
+    if (enabledSites.length === 0) {
       list.innerHTML = '<li class="site-list-item"><span style="color: var(--text-muted)">No sites added yet</span></li>';
       return;
     }
 
-    list.innerHTML = blacklist.map(domain => `
+    list.innerHTML = enabledSites.map((domain) => `
       <li class="site-list-item">
         <span>${this.escapeHtml(domain)}</span>
         <button class="remove-btn" data-domain="${this.escapeHtml(domain)}">
@@ -447,84 +378,95 @@ class OptionsPage {
       </li>
     `).join('');
 
-    // Add remove handlers
-    list.querySelectorAll('.remove-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        this.removeBlacklistEntry(btn.dataset.domain);
+    list.querySelectorAll('.remove-btn').forEach((button) => {
+      button.addEventListener('click', () => {
+        this.removeEnabledSite(button.dataset.domain);
       });
     });
   }
 
-  // Custom Rules Editor
-  setupCustomRulesEditor() {
-    const addBtn = document.getElementById('addRule');
-    const domainInput = document.getElementById('ruleDomain');
-    const selectorInput = document.getElementById('ruleSelector');
-
-    addBtn?.addEventListener('click', () => {
-      this.addCustomRule();
-    });
-
-    selectorInput?.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') {
-        this.addCustomRule();
-      }
-    });
-  }
-
-  addCustomRule() {
-    const domainInput = document.getElementById('ruleDomain');
-    const selectorInput = document.getElementById('ruleSelector');
-    
-    const domain = domainInput?.value.trim();
+  async addCustomRule() {
+    const domainInput = document.getElementById('customDomain');
+    const selectorInput = document.getElementById('customSelector');
+    const domain = this.normalizeHostname(domainInput?.value);
     const selector = selectorInput?.value.trim();
-    
+
     if (!domain || !selector) {
-      this.showToast('Please enter both domain and selector', 'error');
+      this.showToast('Enter both domain and selector', 'error');
       return;
     }
 
-    // Validate selector
     try {
       document.querySelector(selector);
-    } catch (e) {
+    } catch (error) {
       this.showToast('Invalid CSS selector', 'error');
       return;
     }
 
-    if (!this.settings.customRules) {
-      this.settings.customRules = [];
-    }
+    const selectors = this.customRules.selectors || {};
+    const existing = selectors[domain]?.custom || [];
+    selectors[domain] = {
+      custom: [...new Set([...existing, selector])]
+    };
 
-    this.settings.customRules.push({ domain, selector });
-    this.saveSettings();
-    this.renderCustomRules();
+    this.customRules = {
+      domains: [...new Set([...(this.customRules.domains || []), domain])],
+      selectors
+    };
 
+    await this.saveCustomRules();
     domainInput.value = '';
     selectorInput.value = '';
   }
 
-  removeCustomRule(index) {
-    this.settings.customRules.splice(index, 1);
-    this.saveSettings();
-    this.renderCustomRules();
+  async saveCustomRules() {
+    try {
+      await chrome.runtime.sendMessage({
+        type: 'SAVE_CUSTOM_RULES',
+        data: this.customRules
+      });
+      this.renderCustomRules();
+      this.showToast('Custom rules saved');
+    } catch (error) {
+      console.error('Failed to save custom rules:', error);
+      this.showToast('Failed to save custom rules', 'error');
+    }
+  }
+
+  async removeCustomRule(domain, selector) {
+    const currentSelectors = this.customRules.selectors?.[domain]?.custom || [];
+    const nextSelectors = currentSelectors.filter((item) => item !== selector);
+
+    if (nextSelectors.length === 0) {
+      delete this.customRules.selectors[domain];
+      this.customRules.domains = (this.customRules.domains || []).filter((item) => item !== domain);
+    } else {
+      this.customRules.selectors[domain] = { custom: nextSelectors };
+    }
+
+    await this.saveCustomRules();
   }
 
   renderCustomRules() {
-    const list = document.getElementById('rulesList');
+    const list = document.getElementById('customRulesList');
     if (!list) return;
 
-    const rules = this.settings.customRules || [];
-    
-    if (rules.length === 0) {
+    const entries = [];
+    for (const [domain, groups] of Object.entries(this.customRules.selectors || {})) {
+      for (const selector of groups.custom || []) {
+        entries.push({ domain, selector });
+      }
+    }
+
+    if (entries.length === 0) {
       list.innerHTML = '<li class="rule-list-item"><span style="color: var(--text-muted)">No custom rules</span></li>';
       return;
     }
 
-    list.innerHTML = rules.map((rule, index) => `
+    list.innerHTML = entries.map(({ domain, selector }) => `
       <li class="rule-list-item">
-        <span>${this.escapeHtml(rule.domain)}: ${this.escapeHtml(rule.selector)}</span>
-        <button class="remove-btn" data-index="${index}">
+        <span>${this.escapeHtml(domain)}: ${this.escapeHtml(selector)}</span>
+        <button class="remove-btn" data-domain="${this.escapeHtml(domain)}" data-selector="${this.escapeHtml(selector)}">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M18 6L6 18M6 6l12 12"/>
           </svg>
@@ -532,179 +474,153 @@ class OptionsPage {
       </li>
     `).join('');
 
-    // Add remove handlers
-    list.querySelectorAll('.remove-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        this.removeCustomRule(parseInt(btn.dataset.index, 10));
+    list.querySelectorAll('.remove-btn').forEach((button) => {
+      button.addEventListener('click', () => {
+        this.removeCustomRule(button.dataset.domain, button.dataset.selector);
       });
     });
   }
 
-  // Stats UI
   async updateStatsUI() {
     await this.loadStats();
-    
-    // Update stats elements with null checks
-    const totalBlockedEl = document.getElementById('totalBlocked');
-    const totalTimeEl = document.getElementById('totalTime');
-    const totalDataEl = document.getElementById('totalData');
-    
-    if (totalBlockedEl) {
-      totalBlockedEl.textContent = this.formatNumber(this.stats.blocked || 0);
-    }
-    if (totalTimeEl) {
-      const seconds = (this.stats.blocked || 0) * 15; // Avg 15 sec per ad
-      totalTimeEl.textContent = this.formatTime(seconds);
-    }
-    if (totalDataEl) {
-      const mb = ((this.stats.blocked || 0) * 0.5).toFixed(1); // Avg 0.5 MB per ad
-      totalDataEl.textContent = `${mb} MB`;
-    }
 
-    // Breakdown
-    const breakdown = this.stats.breakdown || {};
-    const total = Object.values(breakdown).reduce((a, b) => a + b, 0) || 1;
+    const allTime = this.stats?.allTime || {
+      adsBlocked: 0,
+      timeSaved: 0,
+      dataSaved: 0,
+      byType: {}
+    };
+    const byType = allTime.byType || {};
 
-    const breakdownData = [
-      { label: 'Video Ads', key: 'videoAds', color: '#EF4444' },
-      { label: 'Banner Ads', key: 'bannerAds', color: '#F59E0B' },
-      { label: 'Overlay Ads', key: 'overlayAds', color: '#10B981' },
-      { label: 'Sponsored', key: 'sponsored', color: '#3B82F6' },
-      { label: 'Tracking', key: 'tracking', color: '#8B5CF6' }
-    ];
+    document.getElementById('totalBlocked').textContent = this.formatNumber(allTime.adsBlocked || 0);
+    document.getElementById('totalTime').textContent = this.formatTime(allTime.timeSaved || 0);
+    document.getElementById('totalData').textContent = this.formatData(allTime.dataSaved || 0);
 
-    const chartEl = document.querySelector('.breakdown-chart');
-    if (chartEl) {
-      chartEl.innerHTML = breakdownData.map(item => {
-        const value = breakdown[item.key] || 0;
-        const percent = Math.round((value / total) * 100) || 0;
-        return `
-          <div class="breakdown-row">
-            <span class="breakdown-label">${item.label}</span>
-            <div class="breakdown-bar">
-              <div class="breakdown-fill" style="width: ${percent}%; background: ${item.color}"></div>
-            </div>
-            <span class="breakdown-value">${this.formatNumber(value)}</span>
-          </div>
-        `;
-      }).join('');
-    }
+    const breakdown = {
+      video: byType.videoAd || 0,
+      banner: byType.bannerAd || 0,
+      network: byType.network || 0,
+      other: (byType.overlay || 0) + (byType.popup || 0) + (byType.sponsored || 0)
+    };
+
+    const total = Object.values(breakdown).reduce((sum, value) => sum + value, 0) || 1;
+    this.updateBreakdownRow('video', breakdown.video, total);
+    this.updateBreakdownRow('banner', breakdown.banner, total);
+    this.updateBreakdownRow('network', breakdown.network, total);
+    this.updateBreakdownRow('other', breakdown.other, total);
   }
 
-  // Theme
+  updateBreakdownRow(prefix, count, total) {
+    document.getElementById(`${prefix}Count`).textContent = this.formatNumber(count);
+    document.getElementById(`${prefix}Bar`).style.width = `${Math.round((count / total) * 100)}%`;
+  }
+
   applyTheme() {
-    const theme = this.settings.theme || 'system';
+    const theme = this.settings?.ui?.darkMode || 'auto';
     const html = document.documentElement;
-    
+
     html.classList.remove('light', 'dark');
-    
     if (theme === 'dark') {
       html.classList.add('dark');
     } else if (theme === 'light') {
-      html.classList.remove('dark');
+      html.classList.add('light');
     }
-    // System theme is handled by media query
   }
 
-  // Import/Export
-  exportSettings() {
-    const data = {
-      version: '1.0',
-      exportDate: new Date().toISOString(),
-      settings: this.settings,
-      stats: this.stats
-    };
-
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `adeclipse-settings-${Date.now()}.json`;
-    a.click();
-    
-    URL.revokeObjectURL(url);
-    this.showToast('Settings exported');
-  }
-
-  showImportDialog() {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.json';
-    
-    input.addEventListener('change', async (e) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      
-      try {
-        const text = await file.text();
-        const data = JSON.parse(text);
-        
-        if (data.settings) {
-          this.settings = { ...this.getDefaultSettings(), ...data.settings };
-          await this.saveSettings();
-          this.populateUI();
-          this.showToast('Settings imported');
-        } else {
-          this.showToast('Invalid settings file', 'error');
-        }
-      } catch (error) {
-        console.error('Import error:', error);
-        this.showToast('Failed to import settings', 'error');
-      }
-    });
-    
-    input.click();
-  }
-
-  async resetSettings() {
-    if (!confirm('Are you sure you want to reset all settings to defaults?')) {
-      return;
+  async checkForRuleUpdates() {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'CHECK_RULE_UPDATES' });
+      this.settings.updates.lastUpdate = response?.lastUpdate || new Date().toISOString();
+      document.getElementById('lastUpdateTime').textContent = this.settings.updates.lastUpdate;
+      this.showToast('Rules check completed');
+    } catch (error) {
+      console.error('Failed to check for updates:', error);
+      this.showToast('Failed to check for updates', 'error');
     }
-
-    this.settings = this.getDefaultSettings();
-    await this.saveSettings();
-    this.populateUI();
-    this.showToast('Settings reset to defaults');
   }
 
-  async clearStats() {
-    if (!confirm('Are you sure you want to clear all statistics?')) {
+  async resetStats() {
+    if (!confirm('Are you sure you want to reset all statistics?')) {
       return;
     }
 
     try {
-      await chrome.runtime.sendMessage({ type: 'clearStats' });
-      await this.loadStats();
-      this.updateStatsUI();
-      this.showToast('Statistics cleared');
+      await chrome.runtime.sendMessage({ type: 'RESET_STATS' });
+      await this.updateStatsUI();
+      this.showToast('Statistics reset');
     } catch (error) {
-      console.error('Failed to clear stats:', error);
-      this.showToast('Failed to clear statistics', 'error');
+      console.error('Failed to reset stats:', error);
+      this.showToast('Failed to reset statistics', 'error');
     }
   }
 
-  // Utilities
-  formatNumber(num) {
-    if (num >= 1000000) {
-      return (num / 1000000).toFixed(1) + 'M';
+  async exportSettings() {
+    try {
+      const payload = await chrome.runtime.sendMessage({ type: 'EXPORT_SETTINGS' });
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `adeclipse-settings-${Date.now()}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      this.showToast('Settings exported');
+    } catch (error) {
+      console.error('Failed to export settings:', error);
+      this.showToast('Failed to export settings', 'error');
     }
-    if (num >= 1000) {
-      return (num / 1000).toFixed(1) + 'K';
+  }
+
+  async importSettings(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      await chrome.runtime.sendMessage({
+        type: 'IMPORT_SETTINGS',
+        data
+      });
+
+      await Promise.all([
+        this.loadSettings(),
+        this.loadCustomRules()
+      ]);
+      this.populateUI();
+      this.applyTheme();
+      this.showToast('Settings imported');
+    } catch (error) {
+      console.error('Failed to import settings:', error);
+      this.showToast('Failed to import settings', 'error');
+    } finally {
+      event.target.value = '';
     }
-    return num.toString();
+  }
+
+  formatNumber(value) {
+    return Number(value || 0).toLocaleString();
   }
 
   formatTime(seconds) {
-    if (seconds >= 3600) {
-      const hours = Math.floor(seconds / 3600);
-      const mins = Math.floor((seconds % 3600) / 60);
-      return `${hours}h ${mins}m`;
+    const totalSeconds = Math.round(seconds || 0);
+    if (totalSeconds < 60) return `${totalSeconds}s`;
+    if (totalSeconds < 3600) {
+      const minutes = Math.floor(totalSeconds / 60);
+      const remainder = totalSeconds % 60;
+      return remainder ? `${minutes}m ${remainder}s` : `${minutes}m`;
     }
-    if (seconds >= 60) {
-      return `${Math.floor(seconds / 60)}m`;
-    }
-    return `${seconds}s`;
+
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.round((totalSeconds % 3600) / 60);
+    return `${hours}h ${minutes}m`;
+  }
+
+  formatData(kb) {
+    const value = Number(kb || 0);
+    if (value < 1024) return `${Math.round(value)} KB`;
+    if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} MB`;
+    return `${(value / (1024 * 1024)).toFixed(2)} GB`;
   }
 
   escapeHtml(text) {
@@ -714,7 +630,6 @@ class OptionsPage {
   }
 
   showToast(message, type = 'success') {
-    // Remove existing toast
     const existing = document.querySelector('.toast');
     if (existing) existing.remove();
 
@@ -733,9 +648,9 @@ class OptionsPage {
       z-index: 10000;
       animation: slideIn 0.3s ease;
     `;
-    
+
     document.body.appendChild(toast);
-    
+
     setTimeout(() => {
       toast.style.animation = 'slideOut 0.3s ease';
       setTimeout(() => toast.remove(), 300);
@@ -743,7 +658,6 @@ class OptionsPage {
   }
 }
 
-// Add animation styles
 const style = document.createElement('style');
 style.textContent = `
   @keyframes slideIn {
@@ -757,7 +671,6 @@ style.textContent = `
 `;
 document.head.appendChild(style);
 
-// Initialize on load
 document.addEventListener('DOMContentLoaded', () => {
   window.optionsPage = new OptionsPage();
 });

@@ -4,20 +4,37 @@
  */
 
 document.addEventListener('DOMContentLoaded', async () => {
-  // Initialize
   await loadSettings();
   await loadStats();
   await loadCurrentSite();
   setupEventListeners();
 });
 
-// State
 let settings = {};
 let currentTab = null;
 
-/**
- * Load settings from background
- */
+function normalizeHostname(input) {
+  if (!input) return '';
+
+  try {
+    return new URL(input).hostname.replace(/^www\./, '').toLowerCase();
+  } catch (_) {
+    return String(input).trim().toLowerCase().replace(/^www\./, '').split('/')[0].split(':')[0];
+  }
+}
+
+function hostnameMatches(hostname, domain) {
+  const normalizedHostname = normalizeHostname(hostname);
+  const normalizedDomain = normalizeHostname(domain);
+
+  return normalizedHostname === normalizedDomain ||
+    normalizedHostname.endsWith(`.${normalizedDomain}`);
+}
+
+function isSiteAdded(hostname) {
+  return (settings.enabledSites || []).some((domain) => hostnameMatches(hostname, domain));
+}
+
 async function loadSettings() {
   try {
     settings = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
@@ -28,9 +45,6 @@ async function loadSettings() {
   }
 }
 
-/**
- * Load stats from background
- */
 async function loadStats() {
   try {
     const stats = await chrome.runtime.sendMessage({ type: 'GET_STATS' });
@@ -40,56 +54,51 @@ async function loadStats() {
   }
 }
 
-/**
- * Load current active tab info
- */
 async function loadCurrentSite() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     currentTab = tab;
-    
-    if (tab.url) {
-      const url = new URL(tab.url);
-      const hostname = url.hostname;
-      
-      document.getElementById('siteName').textContent = hostname;
-      
-      // Check if site is whitelisted
-      const isWhitelisted = settings.whitelist?.includes(hostname);
-      const siteToggle = document.getElementById('siteToggle');
-      
-      if (isWhitelisted) {
-        siteToggle.classList.add('disabled');
-        siteToggle.title = 'Ads allowed on this site';
-      } else {
-        siteToggle.classList.remove('disabled');
-        siteToggle.title = 'Ads blocked on this site';
-      }
-    }
+    updateCurrentSiteUI();
   } catch (error) {
     console.error('Failed to get current tab:', error);
     document.getElementById('siteName').textContent = 'Unknown';
   }
 }
 
-/**
- * Update UI based on settings
- */
+function updateCurrentSiteUI() {
+  const siteName = document.getElementById('siteName');
+  const siteToggle = document.getElementById('siteToggle');
+
+  if (!currentTab?.url) {
+    siteName.textContent = 'Unsupported page';
+    siteToggle.classList.add('disabled');
+    siteToggle.title = 'This page cannot be protected';
+    return;
+  }
+
+  const hostname = normalizeHostname(currentTab.url);
+  const added = isSiteAdded(hostname);
+  const active = added && settings.enabled;
+
+  siteName.textContent = hostname;
+  siteToggle.classList.toggle('disabled', !added);
+  siteToggle.title = added
+    ? (active ? 'Protection is active on this site' : 'This site is added, but protection is paused globally')
+    : 'Add this site to enable protection';
+}
+
 function updateUI() {
-  // Main toggle
   const mainToggle = document.getElementById('mainToggle');
   const statusText = document.getElementById('statusText');
-  
+
   mainToggle.checked = settings.enabled;
   statusText.textContent = settings.enabled ? 'Active' : 'Paused';
   statusText.classList.toggle('inactive', !settings.enabled);
-  
-  // Mode buttons
-  document.querySelectorAll('.mode-btn').forEach(btn => {
+
+  document.querySelectorAll('.mode-btn').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.mode === settings.mode);
   });
-  
-  // Block types
+
   if (settings.blockTypes) {
     document.getElementById('blockVideo').checked = settings.blockTypes.videoAds ?? true;
     document.getElementById('blockBanner').checked = settings.blockTypes.bannerAds ?? true;
@@ -98,119 +107,99 @@ function updateUI() {
     document.getElementById('blockTrackers').checked = settings.blockTypes.trackers ?? true;
     document.getElementById('blockCookies').checked = settings.blockTypes.cookieBanners ?? false;
   }
-  
-  // Dark mode
+
   if (settings.ui?.darkMode === 'dark') {
     document.body.classList.add('dark');
   } else if (settings.ui?.darkMode === 'light') {
     document.body.classList.remove('dark');
   }
+
+  updateCurrentSiteUI();
 }
 
-/**
- * Update stats UI
- */
 function updateStatsUI(stats) {
   if (!stats) return;
-  
+
   const today = stats.today || { adsBlocked: 0, timeSaved: 0, dataSaved: 0, adsSkipped: 0 };
-  
+
   document.getElementById('adsBlocked').textContent = formatNumber(today.adsBlocked);
   document.getElementById('timeSaved').textContent = formatTime(today.timeSaved);
   document.getElementById('dataSaved').textContent = formatData(today.dataSaved);
   document.getElementById('adsSkipped').textContent = formatNumber(today.adsSkipped);
 }
 
-/**
- * Setup event listeners
- */
 function setupEventListeners() {
-  // Main toggle
   document.getElementById('mainToggle').addEventListener('change', async (e) => {
     await updateSettings({ enabled: e.target.checked });
-    
-    const statusText = document.getElementById('statusText');
-    statusText.textContent = e.target.checked ? 'Active' : 'Paused';
-    statusText.classList.toggle('inactive', !e.target.checked);
-    
-    // Reload current tab
+
     if (currentTab) {
       chrome.tabs.reload(currentTab.id);
     }
   });
-  
-  // Site toggle
+
   document.getElementById('siteToggle').addEventListener('click', async () => {
     if (!currentTab?.url) return;
-    
-    const hostname = new URL(currentTab.url).hostname;
-    const isWhitelisted = settings.whitelist?.includes(hostname);
-    
+
+    const hostname = normalizeHostname(currentTab.url);
+    const nextEnabled = !isSiteAdded(hostname);
+
     await chrome.runtime.sendMessage({
       type: 'TOGGLE_SITE',
-      data: { hostname, enabled: isWhitelisted }
+      data: { hostname, enabled: nextEnabled }
     });
-    
-    // Reload settings and tab
+
     await loadSettings();
     await loadCurrentSite();
     chrome.tabs.reload(currentTab.id);
   });
-  
-  // Mode buttons
-  document.querySelectorAll('.mode-btn').forEach(btn => {
+
+  document.querySelectorAll('.mode-btn').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.mode-btn').forEach((item) => item.classList.remove('active'));
       btn.classList.add('active');
       await updateSettings({ mode: btn.dataset.mode });
     });
   });
-  
-  // Block type toggles
+
   const blockTypeMap = {
-    'blockVideo': 'videoAds',
-    'blockBanner': 'bannerAds',
-    'blockSponsored': 'sponsoredContent',
-    'blockPopups': 'popups',
-    'blockTrackers': 'trackers',
-    'blockCookies': 'cookieBanners'
+    blockVideo: 'videoAds',
+    blockBanner: 'bannerAds',
+    blockSponsored: 'sponsoredContent',
+    blockPopups: 'popups',
+    blockTrackers: 'trackers',
+    blockCookies: 'cookieBanners'
   };
-  
+
   Object.entries(blockTypeMap).forEach(([elementId, settingKey]) => {
     document.getElementById(elementId).addEventListener('change', async (e) => {
       const blockTypes = { ...settings.blockTypes, [settingKey]: e.target.checked };
       await updateSettings({ blockTypes });
     });
   });
-  
-  // Settings button
+
   document.getElementById('settingsBtn').addEventListener('click', () => {
     chrome.runtime.openOptionsPage();
   });
-  
-  // View stats button
+
   document.getElementById('viewStatsBtn').addEventListener('click', () => {
     chrome.runtime.openOptionsPage();
   });
-  
-  // Report button
+
   document.getElementById('reportBtn').addEventListener('click', () => {
     document.getElementById('reportModal').classList.add('active');
   });
-  
-  // Close report modal
+
   document.getElementById('closeReportModal').addEventListener('click', () => {
     document.getElementById('reportModal').classList.remove('active');
   });
-  
-  // Submit report
+
   document.getElementById('submitReport').addEventListener('click', async () => {
     const description = document.getElementById('reportDescription').value;
-    
+
     if (!description.trim()) {
       return;
     }
-    
+
     try {
       await chrome.runtime.sendMessage({
         type: 'REPORT_BUG',
@@ -220,18 +209,16 @@ function setupEventListeners() {
           userAgent: navigator.userAgent
         }
       });
-      
+
       document.getElementById('reportModal').classList.remove('active');
       document.getElementById('reportDescription').value = '';
-      
       showNotification('Report submitted, thank you!');
     } catch (error) {
       console.error('Failed to submit report:', error);
       showError('Could not submit report');
     }
   });
-  
-  // Close modal on outside click
+
   document.getElementById('reportModal').addEventListener('click', (e) => {
     if (e.target.id === 'reportModal') {
       e.target.classList.remove('active');
@@ -239,18 +226,15 @@ function setupEventListeners() {
   });
 }
 
-/**
- * Update settings
- */
 async function updateSettings(updates) {
   try {
-    await chrome.runtime.sendMessage({
+    const response = await chrome.runtime.sendMessage({
       type: 'UPDATE_SETTINGS',
       data: updates
     });
-    
-    // Merge updates locally
-    settings = { ...settings, ...updates };
+
+    settings = response?.settings || { ...settings, ...updates };
+    updateUI();
   } catch (error) {
     console.error('Failed to update settings:', error);
     showError('Could not save settings');

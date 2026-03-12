@@ -128,6 +128,8 @@
   var adSeekedToEnd = false;
   var adEndTimestamp = 0;
   var wasInAdMode   = false;
+  var lastContentSnapshot = null;
+  var pendingRestoreSnapshot = null;
 
   /* ── Authoritative ad check ──────────────────────────────────── */
 
@@ -140,22 +142,122 @@
 
   /* ── URL timestamp helper ──────────────────────────────────── */
 
+  function getCurrentVideoId() {
+    try {
+      var params = new URLSearchParams(window.location.search);
+      if (params.get('v')) {
+        return params.get('v');
+      }
+
+      var path = window.location.pathname || '';
+      if (path.indexOf('/shorts/') === 0) {
+        return path.split('/shorts/')[1] || '';
+      }
+    } catch (_) { }
+
+    return '';
+  }
+
   function getUrlStartTime() {
     try {
       var params = new URLSearchParams(window.location.search);
       var t = params.get('t');
-      if (t) {
-        // Handle formats: "120", "120s", "2m", "1h2m3s"
-        var match = t.match(/(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s?)?$/);
-        if (match) {
-          var h = parseInt(match[1] || '0', 10);
-          var m = parseInt(match[2] || '0', 10);
-          var s = parseInt(match[3] || '0', 10);
-          return h * 3600 + m * 60 + s;
-        }
+      if (!t) return null;
+
+      if (/^\d+$/.test(t)) {
+        return parseInt(t, 10);
       }
-    } catch (_) {}
-    return 0;
+
+      var total = 0;
+      var match = t.match(/(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s?)?$/);
+      if (match) {
+        total += parseInt(match[1] || '0', 10) * 3600;
+        total += parseInt(match[2] || '0', 10) * 60;
+        total += parseInt(match[3] || '0', 10);
+      }
+
+      return total > 0 ? total : null;
+    } catch (_) { }
+
+    return null;
+  }
+
+  function getVideoIdentityKey(video) {
+    return [
+      getCurrentVideoId(),
+      (video && (video.currentSrc || video.src)) || ''
+    ].join('|');
+  }
+
+  function captureContentSnapshot(video) {
+    if (!video) return null;
+
+    var currentTime = Number(video.currentTime) || 0;
+    var urlStartTime = getUrlStartTime();
+    var targetTime = currentTime > 0.25 ? currentTime : urlStartTime;
+
+    if (!targetTime || targetTime < 0) {
+      return null;
+    }
+
+    return {
+      identity: getVideoIdentityKey(video),
+      targetTime: targetTime,
+      wasPaused: video.paused,
+      capturedAt: Date.now()
+    };
+  }
+
+  function refreshContentSnapshot(video) {
+    if (!video || playerInAdMode(document.querySelector('#movie_player') || document.createElement('div'))) {
+      return;
+    }
+
+    var snapshot = captureContentSnapshot(video);
+    if (!snapshot) return;
+
+    if (!lastContentSnapshot || snapshot.targetTime >= lastContentSnapshot.targetTime - 0.25) {
+      lastContentSnapshot = snapshot;
+    }
+  }
+
+  function maybeRestoreContentPosition(player, video) {
+    if (!video || !pendingRestoreSnapshot || playerInAdMode(player)) {
+      return false;
+    }
+
+    var snapshot = pendingRestoreSnapshot;
+    var age = Date.now() - snapshot.capturedAt;
+    if (age > 10000) {
+      pendingRestoreSnapshot = null;
+      return false;
+    }
+
+    var currentIdentity = getVideoIdentityKey(video);
+    if (snapshot.identity && currentIdentity && snapshot.identity !== currentIdentity) {
+      pendingRestoreSnapshot = null;
+      return false;
+    }
+
+    var targetTime = snapshot.targetTime;
+    if (!targetTime || targetTime < 0.25) {
+      pendingRestoreSnapshot = null;
+      return false;
+    }
+
+    var drift = Math.abs(video.currentTime - targetTime);
+    if (drift > 1.5 && (video.currentTime < targetTime || video.currentTime > targetTime + 30)) {
+      try {
+        video.currentTime = targetTime;
+      } catch (_) { }
+    }
+
+    if (!snapshot.wasPaused && video.paused && video.readyState >= 2) {
+      video.play().catch(function () { });
+    }
+
+    pendingRestoreSnapshot = null;
+    return true;
   }
 
   /* ── Micro-actions ───────────────────────────────────────────── */
@@ -298,38 +400,40 @@
       video.muted       = savedMuted;
       video.volume       = savedVolume;
       video.playbackRate = 1;   // safety: ensure normal speed
+      pendingRestoreSnapshot = lastContentSnapshot;
+      if (!pendingRestoreSnapshot) {
+        var urlStartTime = getUrlStartTime();
+        if (urlStartTime) {
+          pendingRestoreSnapshot = {
+            identity: '',
+            targetTime: urlStartTime,
+            wasPaused: false,
+            capturedAt: Date.now()
+          };
+        }
+      }
 
-      // Register one-shot listeners to reset currentTime if the real video
-      // inherited a wrong position from the ad-skip seeks
-      var resetDone = false;
-      var resetIfNeeded = function () {
-        if (resetDone) return;
-
-        // Only act within 5 seconds of ad ending
+      var restoreIfNeeded = function () {
         if (Date.now() - adEndTimestamp > 5000) {
           cleanup();
           return;
         }
 
-        // If not in ad mode and currentTime is suspiciously high
-        if (!playerInAdMode(player) && video.currentTime > 2) {
-          var targetTime = getUrlStartTime();
-          video.currentTime = targetTime;
-          resetDone = true;
+        if (maybeRestoreContentPosition(player, video)) {
           cleanup();
         }
       };
 
       var cleanup = function () {
-        video.removeEventListener('playing', resetIfNeeded, true);
-        video.removeEventListener('loadeddata', resetIfNeeded, true);
-        video.removeEventListener('timeupdate', resetIfNeeded, true);
+        video.removeEventListener('playing', restoreIfNeeded, true);
+        video.removeEventListener('loadeddata', restoreIfNeeded, true);
+        video.removeEventListener('timeupdate', restoreIfNeeded, true);
         wasInAdMode = false;
       };
 
-      video.addEventListener('playing', resetIfNeeded, true);
-      video.addEventListener('loadeddata', resetIfNeeded, true);
-      video.addEventListener('timeupdate', resetIfNeeded, true);
+      video.addEventListener('playing', restoreIfNeeded, true);
+      video.addEventListener('loadeddata', restoreIfNeeded, true);
+      video.addEventListener('timeupdate', restoreIfNeeded, true);
 
       // Autoplay: the ad-skip sequence often leaves the real video paused.
       // Wait briefly for the real video to load, then trigger play.
@@ -342,6 +446,7 @@
       setTimeout(ensurePlay, 100);
       setTimeout(ensurePlay, 300);
       setTimeout(ensurePlay, 800);
+      setTimeout(restoreIfNeeded, 150);
     }
 
     adHandling = false;
@@ -403,12 +508,8 @@
         if (video.playbackRate !== 1) {
           video.playbackRate = 1;
         }
-        // Post-ad reset: if we recently exited ad mode and time is wrong
-        if (wasInAdMode && video.currentTime > 2) {
-          var targetTime = getUrlStartTime();
-          video.currentTime = targetTime;
-          wasInAdMode = false;
-        }
+        maybeRestoreContentPosition(player, video);
+        refreshContentSnapshot(video);
         // Ensure autoplay after ad skip
         if (video.paused && video.readyState >= 2) {
           video.play().catch(function () {});
@@ -419,6 +520,14 @@
     video.addEventListener('playing', function () {
       if (!playerInAdMode(player) && video.playbackRate !== 1) {
         video.playbackRate = 1;
+      }
+      maybeRestoreContentPosition(player, video);
+      refreshContentSnapshot(video);
+    }, true);
+
+    video.addEventListener('timeupdate', function () {
+      if (!playerInAdMode(player)) {
+        refreshContentSnapshot(video);
       }
     }, true);
   }
@@ -459,6 +568,8 @@
 
   function attachNavigationHooks() {
     var handler = function () {
+      pendingRestoreSnapshot = null;
+      lastContentSnapshot = null;
       purgeStaticAds();
       purgeBlockedYoutubePopups();
       var player = document.querySelector('#movie_player');
@@ -474,7 +585,12 @@
       purgeStaticAds();
       purgeBlockedYoutubePopups();
       var player = document.querySelector('#movie_player');
-      if (player) onPlayerStateChange(player);
+      if (player) {
+        onPlayerStateChange(player);
+        if (!playerInAdMode(player)) {
+          refreshContentSnapshot(player.querySelector('video'));
+        }
+      }
     }, 500);
   }
 

@@ -121,7 +121,13 @@ describe('General Ad Blocker', () => {
     });
 
     test('should detect ad-like text content', () => {
-      const adKeywords = ['sponsored', 'advertisement', 'ad', 'promo', 'partner'];
+      const adPatterns = [
+        /\bsponsored\b/i,
+        /\badvertisement\b/i,
+        /\bpromo\b/i,
+        /\bpartner\b/i,
+        /\bad\b/i
+      ];
       
       const testCases = [
         { text: 'Sponsored Content', expected: true },
@@ -131,9 +137,7 @@ describe('General Ad Blocker', () => {
       ];
 
       testCases.forEach(({ text, expected }) => {
-        const hasAdKeyword = adKeywords.some(kw => 
-          text.toLowerCase().includes(kw)
-        );
+        const hasAdKeyword = adPatterns.some((pattern) => pattern.test(text));
         expect(hasAdKeyword).toBe(expected);
       });
     });

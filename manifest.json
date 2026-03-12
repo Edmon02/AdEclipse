@@ -64,7 +64,7 @@
     "rule_resources": [
       {
         "id": "adblock_rules",
-        "enabled": true,
+        "enabled": false,
         "path": "rules/declarative_rules.json"
       }
     ]

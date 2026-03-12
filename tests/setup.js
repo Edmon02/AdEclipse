@@ -13,9 +13,17 @@ global.chrome = {
     onMessage: {
       addListener: jest.fn()
     },
+    onInstalled: {
+      addListener: jest.fn()
+    },
+    onStartup: {
+      addListener: jest.fn()
+    },
     getManifest: jest.fn(() => ({
       version: '1.0.0'
     })),
+    getURL: jest.fn((path) => `chrome-extension://test-extension-id/${path}`),
+    openOptionsPage: jest.fn(() => Promise.resolve()),
     id: 'test-extension-id'
   },
   storage: {
@@ -52,16 +60,27 @@ global.chrome = {
     query: jest.fn(() => Promise.resolve([])),
     sendMessage: jest.fn(() => Promise.resolve()),
     get: jest.fn(() => Promise.resolve({})),
-    update: jest.fn(() => Promise.resolve({}))
+    update: jest.fn(() => Promise.resolve({})),
+    reload: jest.fn(() => Promise.resolve()),
+    create: jest.fn(() => Promise.resolve({}))
   },
   action: {
     setBadgeText: jest.fn(() => Promise.resolve()),
     setBadgeBackgroundColor: jest.fn(() => Promise.resolve()),
     setIcon: jest.fn(() => Promise.resolve())
   },
+  scripting: {
+    executeScript: jest.fn(() => Promise.resolve()),
+    insertCSS: jest.fn(() => Promise.resolve())
+  },
   declarativeNetRequest: {
     updateDynamicRules: jest.fn(() => Promise.resolve()),
-    getDynamicRules: jest.fn(() => Promise.resolve([]))
+    getDynamicRules: jest.fn(() => Promise.resolve([])),
+    updateSessionRules: jest.fn(() => Promise.resolve()),
+    getSessionRules: jest.fn(() => Promise.resolve([])),
+    onRuleMatchedDebug: {
+      addListener: jest.fn()
+    }
   },
   alarms: {
     create: jest.fn(),
@@ -69,6 +88,12 @@ global.chrome = {
       addListener: jest.fn()
     },
     clear: jest.fn()
+  },
+  contextMenus: {
+    create: jest.fn(),
+    onClicked: {
+      addListener: jest.fn()
+    }
   }
 };
 
@@ -100,17 +125,6 @@ global.fetch = jest.fn(() =>
     text: () => Promise.resolve('')
   })
 );
-
-// Mock URL
-global.URL = class {
-  constructor(url, base) {
-    this.href = url;
-    this.hostname = 'example.com';
-    this.pathname = '/';
-    this.search = '';
-    this.hash = '';
-  }
-};
 
 // Console error handler for tests
 const originalConsoleError = console.error;

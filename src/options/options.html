@@ -311,23 +311,22 @@
 
         <div class="settings-group">
           <h2 class="group-title">Website Ad Blocking Mode</h2>
-          <p class="group-description">Choose how website ad blocking works (YouTube is always protected when enabled above)</p>
+          <p class="group-description">AdEclipse now stays fully off on websites until you explicitly add them below.</p>
 
           <div class="setting-row">
             <div class="setting-info">
               <span class="setting-label">Mode</span>
-              <span class="setting-description">Manual: only block ads on sites you add below. All Sites: block ads everywhere.</span>
+              <span class="setting-description">Explicit only: protection runs only on sites you add below, including YouTube.</span>
             </div>
             <select id="websiteModeSelect" class="select-input">
-              <option value="manual" selected>Manual - Only listed sites</option>
-              <option value="all">All Sites - Block everywhere</option>
+              <option value="explicit" selected>Explicit Only - Added sites only</option>
             </select>
           </div>
         </div>
 
         <div class="settings-group" id="protectedSitesGroup">
-          <h2 class="group-title">Protected Sites</h2>
-          <p class="group-description">Sites where ads will be blocked (add domains like <code>ionmedia.tv</code>)</p>
+          <h2 class="group-title">Added Sites</h2>
+          <p class="group-description">Protection only runs on these sites. Add domains like <code>youtube.com</code> or <code>ionmedia.tv</code>.</p>
 
           <div class="list-editor">
             <div class="list-input-row">
@@ -341,18 +340,8 @@
         </div>
 
         <div class="settings-group">
-          <h2 class="group-title">Whitelist</h2>
-          <p class="group-description">Sites where ads are allowed (overrides protection)</p>
-
-          <div class="list-editor">
-            <div class="list-input-row">
-              <input type="text" id="whitelistInput" class="text-input" placeholder="example.com">
-              <button class="btn-secondary" id="addWhitelist">Add</button>
-            </div>
-            <ul class="site-list" id="whitelistItems">
-              <!-- Items will be added here -->
-            </ul>
-          </div>
+          <h2 class="group-title">How Site Activation Works</h2>
+          <p class="group-description">If a site is not added above, AdEclipse does not inject scripts there and does not apply site-scoped blocking for that page.</p>
         </div>
 
         <div class="settings-group">
