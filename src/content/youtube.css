@@ -122,6 +122,16 @@ tp-yt-paper-dialog:has([class*="premium"]),
   display: none !important;
 }
 
+/* If we hide YouTube's premium/enforcement modal, also disable its page blocker */
+html:has(tp-yt-paper-dialog:has(.ytd-enforcement-message-view-model)) tp-yt-iron-overlay-backdrop,
+html:has(tp-yt-paper-dialog:has([class*="premium"])) tp-yt-iron-overlay-backdrop,
+html:has(.ytd-popup-container:has([class*="premium"])) tp-yt-iron-overlay-backdrop,
+html:has(ytd-enforcement-message-view-model) tp-yt-iron-overlay-backdrop {
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
 /* Hide Shorts ads */
 ytd-reel-video-renderer:has(.ytd-ad-slot-renderer),
 ytd-reel-item-renderer[is-ad] {

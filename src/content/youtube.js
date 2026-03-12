@@ -107,6 +107,17 @@
     'ytd-rich-item-renderer:has(ytd-ad-slot-renderer),' +
     'ytd-rich-section-renderer:has(ytd-ad-slot-renderer)';
 
+  var BLOCKED_DIALOG_SEL =
+    'tp-yt-paper-dialog:has(.ytd-enforcement-message-view-model),' +
+    'tp-yt-paper-dialog:has([class*="premium"]),' +
+    '.ytd-popup-container:has([class*="premium"]),' +
+    'ytd-enforcement-message-view-model';
+
+  var MODAL_BACKDROP_SEL =
+    'tp-yt-iron-overlay-backdrop,' +
+    'tp-yt-iron-overlay-backdrop.opened,' +
+    'tp-yt-iron-overlay-backdrop[opened]';
+
   /* ── Persistent state ────────────────────────────────────────── */
 
   var adHandling    = false;
@@ -167,6 +178,46 @@
     });
   }
 
+  function purgeBlockedYoutubePopups() {
+    var hasBlockedDialog = false;
+
+    document.querySelectorAll(BLOCKED_DIALOG_SEL).forEach(function (el) {
+      hasBlockedDialog = true;
+
+      var dialog = el.closest('tp-yt-paper-dialog') || el;
+      var popupContainer = el.closest('.ytd-popup-container');
+
+      [dialog, popupContainer].forEach(function (node) {
+        if (!node) return;
+        try {
+          if (typeof node.cancel === 'function') node.cancel();
+        } catch (_) {}
+        try {
+          if (typeof node.close === 'function') node.close();
+        } catch (_) {}
+        try { node.removeAttribute('opened'); } catch (_) {}
+        try { node.classList.remove('opened'); } catch (_) {}
+        try { node.style.setProperty('display', 'none', 'important'); } catch (_) {}
+      });
+    });
+
+    if (!hasBlockedDialog) return;
+
+    document.querySelectorAll(MODAL_BACKDROP_SEL).forEach(function (el) {
+      try { el.removeAttribute('opened'); } catch (_) {}
+      try { el.classList.remove('opened'); } catch (_) {}
+      try { el.style.setProperty('display', 'none', 'important'); } catch (_) {}
+      try { el.style.setProperty('pointer-events', 'none', 'important'); } catch (_) {}
+      try { el.remove(); } catch (_) {}
+    });
+
+    if (document.body) {
+      try { document.body.style.removeProperty('overflow'); } catch (_) {}
+      try { document.body.style.removeProperty('pointer-events'); } catch (_) {}
+    }
+    try { document.documentElement.style.removeProperty('overflow'); } catch (_) {}
+  }
+
   /* ── Core: nuke one frame of ad ──────────────────────────────── */
 
   function nukeAdFrame(player) {
@@ -198,6 +249,7 @@
 
     // 4. Hide leftover overlay elements
     hideAdOverlays();
+    purgeBlockedYoutubePopups();
   }
 
   /* ── Ad-loop management ──────────────────────────────────────── */
@@ -399,6 +451,7 @@
       pending = true;
       queueMicrotask(function () {
         purgeStaticAds();
+        purgeBlockedYoutubePopups();
         pending = false;
       });
     }).observe(document.body, { childList: true, subtree: true });
@@ -407,6 +460,7 @@
   function attachNavigationHooks() {
     var handler = function () {
       purgeStaticAds();
+      purgeBlockedYoutubePopups();
       var player = document.querySelector('#movie_player');
       if (player) onPlayerStateChange(player);
     };
@@ -418,6 +472,7 @@
   function startSafetyPoll() {
     setInterval(function () {
       purgeStaticAds();
+      purgeBlockedYoutubePopups();
       var player = document.querySelector('#movie_player');
       if (player) onPlayerStateChange(player);
     }, 500);
@@ -449,6 +504,7 @@
   function bootstrapAdBlocker() {
     injectEarlyStyle();
     purgeStaticAds();
+    purgeBlockedYoutubePopups();
     attachPlayerObserver();
     attachVideoSafety();
     attachBodyObserver();
