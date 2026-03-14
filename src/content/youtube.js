@@ -346,12 +346,26 @@
       var ensurePlay = function () {
         if (playerInAdMode(player)) return;
         if (video.paused && video.readyState >= 2) {
-          video.play().catch(function () {});
+          try {
+            var playPromise = video.play();
+            if (playPromise !== undefined) {
+              playPromise.catch(function (error) {
+                // Autoplay was prevented, try clicking play button
+                var playBtn = player.querySelector('.ytp-play-button, button[aria-label="Play"]');
+                if (playBtn) {
+                  try { playBtn.click(); } catch (_) {}
+                }
+              });
+            }
+          } catch (_) {}
         }
       };
-      setTimeout(ensurePlay, 100);
-      setTimeout(ensurePlay, 300);
-      setTimeout(ensurePlay, 800);
+
+      // Multiple attempts to ensure playback starts
+      setTimeout(ensurePlay, 50);
+      setTimeout(ensurePlay, 150);
+      setTimeout(ensurePlay, 400);
+      setTimeout(ensurePlay, 1000);
     }
 
     adHandling = false;
@@ -416,9 +430,24 @@
         if (video.playbackRate !== 1) {
           video.playbackRate = 1;
         }
-        // Ensure autoplay after ad skip
+        // Ensure autoplay after ad skip - multiple attempts
         if (video.paused && video.readyState >= 2) {
-          video.play().catch(function () {});
+          try {
+            var playPromise = video.play();
+            if (playPromise !== undefined) {
+              playPromise.catch(function () {
+                // If autoplay fails, try clicking play button
+                setTimeout(function () {
+                  if (video.paused) {
+                    var playBtn = player.querySelector('.ytp-play-button, button[aria-label="Play"]');
+                    if (playBtn) {
+                      try { playBtn.click(); } catch (_) {}
+                    }
+                  }
+                }, 100);
+              });
+            }
+          } catch (_) {}
         }
       }
     }, true);
@@ -609,7 +638,7 @@
       } catch (_) {}
     }, 100);
 
-    // 4. Track user scroll events
+    // 4. Track user scroll events - ALLOW ALL SCROLL METHODS
     var scrollListener = function () {
       isUserScrolling = true;
       clearTimeout(scrollTimeout);
@@ -618,8 +647,24 @@
       }, 150);
     };
 
+    // Capture scroll on document, window, and body
     document.addEventListener('scroll', scrollListener, { capture: true, passive: true });
     window.addEventListener('scroll', scrollListener, { capture: true, passive: true });
+    if (document.body) {
+      document.body.addEventListener('scroll', scrollListener, { capture: true, passive: true });
+    }
+
+    // CRITICAL: Allow wheel scrolling by NOT blocking it
+    // The scroll position monitoring handles YouTube resets, not event blocking
+    document.addEventListener('wheel', function (e) {
+      // Don't prevent wheel - let it scroll naturally
+      // Position monitoring will handle YouTube's reset attempts
+      isUserScrolling = true;
+      clearTimeout(scrollTimeout);
+      scrollTimeout = setTimeout(function () {
+        isUserScrolling = false;
+      }, 150);
+    }, { capture: true, passive: true });
 
     // 5. Prevent scroll-related CSS from locking
     var styleMonitor = setInterval(function () {
