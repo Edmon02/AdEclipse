@@ -128,6 +128,7 @@
   var adSeekedToEnd = false;
   var adEndTimestamp = 0;
   var wasInAdMode   = false;
+  var realVideoStartTime = 0;  // Track where the real video started
 
   /* ── Authoritative ad check ──────────────────────────────────── */
 
@@ -212,10 +213,11 @@
     });
 
     if (document.body) {
-      try { document.body.style.removeProperty('overflow'); } catch (_) {}
-      try { document.body.style.removeProperty('pointer-events'); } catch (_) {}
+      try { document.body.style.setProperty('overflow', 'auto', 'important'); } catch (_) {}
+      try { document.body.style.setProperty('pointer-events', 'auto', 'important'); } catch (_) {}
     }
-    try { document.documentElement.style.removeProperty('overflow'); } catch (_) {}
+    try { document.documentElement.style.setProperty('overflow', 'auto', 'important'); } catch (_) {}
+    try { document.documentElement.style.setProperty('pointer-events', 'auto', 'important'); } catch (_) {}
   }
 
   /* ── Core: nuke one frame of ad ──────────────────────────────── */
@@ -299,8 +301,8 @@
       video.volume       = savedVolume;
       video.playbackRate = 1;   // safety: ensure normal speed
 
-      // Register one-shot listeners to reset currentTime if the real video
-      // inherited a wrong position from the ad-skip seeks
+      // Register one-shot listeners to restore the real video's playback position
+      // This fixes both preview watch time and resume functionality
       var resetDone = false;
       var resetIfNeeded = function () {
         if (resetDone) return;
@@ -311,10 +313,11 @@
           return;
         }
 
-        // If not in ad mode and currentTime is suspiciously high
-        if (!playerInAdMode(player) && video.currentTime > 2) {
-          var targetTime = getUrlStartTime();
-          video.currentTime = targetTime;
+        // If not in ad mode anymore, the real video is now active
+        if (!playerInAdMode(player)) {
+          // Restore the position where the real video started (before the ad)
+          // This preserves resume functionality and fixes preview watch time
+          video.currentTime = realVideoStartTime;
           resetDone = true;
           cleanup();
         }
@@ -360,6 +363,9 @@
         if (video) {
           savedMuted  = video.muted;
           savedVolume = video.volume;
+          // CRITICAL: Save the real video's current position before the ad takes over
+          // This preserves resume functionality and preview watch time
+          realVideoStartTime = video.currentTime;
 
           // One-shot listener: seek as soon as duration is known
           var onMeta = function () {
@@ -402,12 +408,6 @@
       if (!playerInAdMode(player)) {
         if (video.playbackRate !== 1) {
           video.playbackRate = 1;
-        }
-        // Post-ad reset: if we recently exited ad mode and time is wrong
-        if (wasInAdMode && video.currentTime > 2) {
-          var targetTime = getUrlStartTime();
-          video.currentTime = targetTime;
-          wasInAdMode = false;
         }
         // Ensure autoplay after ad skip
         if (video.paused && video.readyState >= 2) {
@@ -473,6 +473,19 @@
     setInterval(function () {
       purgeStaticAds();
       purgeBlockedYoutubePopups();
+
+      // Ensure scrolling is always enabled (prevent YouTube from re-locking it)
+      try {
+        if (document.body && document.body.style.getPropertyValue('overflow') === 'hidden') {
+          document.body.style.setProperty('overflow', 'auto', 'important');
+          document.body.style.setProperty('pointer-events', 'auto', 'important');
+        }
+        if (document.documentElement && document.documentElement.style.getPropertyValue('overflow') === 'hidden') {
+          document.documentElement.style.setProperty('overflow', 'auto', 'important');
+          document.documentElement.style.setProperty('pointer-events', 'auto', 'important');
+        }
+      } catch (_) {}
+
       var player = document.querySelector('#movie_player');
       if (player) onPlayerStateChange(player);
     }, 500);
