@@ -514,98 +514,183 @@
       '#movie_player.ad-interrupting .ytp-spinner-container' +
       '{display:none!important}' +
 
-      // CRITICAL: Force scrolling enabled at all times
-      'html {overflow:auto!important;pointer-events:auto!important}' +
-      'body {overflow:visible!important;pointer-events:auto!important}' +
+      /* CRITICAL: Force scrolling enabled globally and permanently */
+      'html {' +
+        'overflow:auto!important;' +
+        'overflow-y:scroll!important;' +
+        'height:auto!important;' +
+        'pointer-events:auto!important;' +
+        'scroll-behavior:smooth!important;' +
+      '}' +
+      'body {' +
+        'overflow:visible!important;' +
+        'overflow-y:scroll!important;' +
+        'height:auto!important;' +
+        'max-height:none!important;' +
+        'pointer-events:auto!important;' +
+        'position:static!important;' +
+      '}' +
+      'ytd-rich-grid-renderer {overflow:visible!important}' +
 
       AD_OVERLAY_SEL + '{display:none!important}';
 
     (document.head || document.documentElement).appendChild(s);
   }
 
-  /* ── Real-time scroll lock prevention ────────────────────────────── */
+  /* ── Aggressive scroll position override ────────────────────────────── */
 
-  function installScrollUnlocker() {
-    // Watch for any attempt to lock scrolling via MutationObserver
-    var scrollLockObserver = new MutationObserver(function () {
+  function installAggressiveScrollUnlocker() {
+    var lastValidScrollY = 0;
+    var scrollMonitoringActive = true;
+    var isUserScrolling = false;
+    var scrollTimeout;
+
+    // 1. Override window.scroll and window.scrollTo to allow user scrolling
+    var originalScrollTo = window.scrollTo;
+    var originalScroll = window.scroll;
+    var scrollToAllowed = true;
+
+    window.scrollTo = function (x, y) {
+      if (!scrollToAllowed) {
+        // If this is from YouTube trying to reset scroll, ignore it
+        if (typeof y === 'number' && y < lastValidScrollY - 50) {
+          return; // Block YouTube's attempt to scroll back up
+        }
+      }
+      return originalScrollTo.apply(this, arguments);
+    };
+
+    window.scroll = function (x, y) {
+      if (!scrollToAllowed) {
+        if (typeof y === 'number' && y < lastValidScrollY - 50) {
+          return;
+        }
+      }
+      return originalScroll.apply(this, arguments);
+    };
+
+    // 2. Prevent scroll event listeners from canceling scroll
+    var originalAddEventListener = document.addEventListener;
+    document.addEventListener = function (type, listener, options) {
+      if (type === 'scroll') {
+        // Wrap scroll listeners to prevent them from breaking scrolling
+        var wrappedListener = function (e) {
+          try {
+            listener.call(this, e);
+          } catch (_) {}
+        };
+        return originalAddEventListener.call(this, type, wrappedListener, options);
+      }
+      return originalAddEventListener.call(this, type, listener, options);
+    };
+
+    // 3. Real-time scroll position monitoring and correction
+    var scrollMonitor = setInterval(function () {
+      if (!scrollMonitoringActive) return;
+
       try {
-        // Force-unlock if YouTube tries to re-apply overflow: hidden
-        if (document.documentElement.style.overflow === 'hidden') {
-          document.documentElement.style.setProperty('overflow', 'auto', 'important');
-        }
-        if (document.body && document.body.style.overflow === 'hidden') {
-          document.body.style.setProperty('overflow', 'visible', 'important');
+        var currentScrollY = window.pageYOffset || document.documentElement.scrollTop;
+
+        // If page was scrolled by user, remember this position
+        if (isUserScrolling) {
+          lastValidScrollY = currentScrollY;
         }
 
-        // Also check for max-height constraints that might prevent scrolling
-        if (document.body && (document.body.style.maxHeight === '100%' || document.body.style.maxHeight === '100vh')) {
-          document.body.style.setProperty('max-height', 'none', 'important');
+        // If scroll was reset by YouTube (big jump backwards), forcibly restore it
+        if (currentScrollY < lastValidScrollY - 100 && lastValidScrollY > 100) {
+          scrollToAllowed = false;
+          window.scrollTo(0, lastValidScrollY);
+          setTimeout(function () {
+            scrollToAllowed = true;
+          }, 50);
+        } else if (currentScrollY > 0) {
+          lastValidScrollY = currentScrollY;
         }
       } catch (_) {}
-    });
+    }, 100);
 
-    // Observe style attribute changes on html and body
-    if (document.documentElement) {
-      scrollLockObserver.observe(document.documentElement, {
-        attributes: true,
-        attributeFilter: ['style']
-      });
-    }
-    if (document.body) {
-      scrollLockObserver.observe(document.body, {
-        attributes: true,
-        attributeFilter: ['style']
-      });
-    }
+    // 4. Track user scroll events
+    var scrollListener = function () {
+      isUserScrolling = true;
+      clearTimeout(scrollTimeout);
+      scrollTimeout = setTimeout(function () {
+        isUserScrolling = false;
+      }, 150);
+    };
 
-    // Also watch for modal backdrops trying to block scroll
-    var backdropObserver = new MutationObserver(function () {
+    document.addEventListener('scroll', scrollListener, { capture: true, passive: true });
+    window.addEventListener('scroll', scrollListener, { capture: true, passive: true });
+
+    // 5. Prevent scroll-related CSS from locking
+    var styleMonitor = setInterval(function () {
       try {
-        document.querySelectorAll(MODAL_BACKDROP_SEL).forEach(function (el) {
-          if (el.style.display !== 'none') {
-            el.style.setProperty('display', 'none', 'important');
-            el.style.setProperty('pointer-events', 'none', 'important');
+        ['html', 'body'].forEach(function (selector) {
+          var el = selector === 'html' ? document.documentElement : document.body;
+          if (!el) return;
+
+          // Remove height locks
+          if (el.style.height === '100%' || el.style.height === '100vh') {
+            el.style.setProperty('height', 'auto', 'important');
+          }
+          if (el.style.maxHeight && el.style.maxHeight !== 'none') {
+            el.style.setProperty('max-height', 'none', 'important');
+          }
+
+          // Remove overflow locks
+          if (el.style.overflow === 'hidden') {
+            el.style.setProperty('overflow', selector === 'html' ? 'auto' : 'visible', 'important');
+          }
+
+          // Restore pointer events
+          if (el.style.pointerEvents === 'none') {
+            el.style.setProperty('pointer-events', 'auto', 'important');
           }
         });
       } catch (_) {}
-    });
+    }, 200);
 
-    if (document.body) {
-      backdropObserver.observe(document.body, {
-        childList: true,
-        subtree: true
-      });
-    }
+    // 6. Force enable scrolling at CSS level permanently
+    var styleSheet = document.createElement('style');
+    styleSheet.id = 'adeclipse-scroll-override';
+    styleSheet.textContent =
+      'html, body { overflow: visible !important; width: 100% !important; height: auto !important; }' +
+      'html { scroll-behavior: smooth !important; }' +
+      'body { overflow-y: scroll !important; position: static !important; }' +
+      /* Block any element trying to prevent scrolling */
+      '[style*="overflow"][style*="hidden"] { overflow: visible !important; }' +
+      '[style*="position"][style*="fixed"] > * { position: relative !important; }';
 
-    // Disable wheel/touch events on backdrops that might intercept scroll
-    document.addEventListener('wheel', function (e) {
+    (document.head || document.documentElement).appendChild(styleSheet);
+
+    // 7. Monitor modal backdrops in real-time and kill them
+    var backdropKiller = setInterval(function () {
       try {
-        var target = e.target;
-        if (target && (target.classList.contains('tp-yt-iron-overlay-backdrop') ||
-                       target.closest('tp-yt-iron-overlay-backdrop'))) {
-          e.preventDefault();
-          e.stopPropagation();
-        }
+        document.querySelectorAll('tp-yt-iron-overlay-backdrop').forEach(function (backdrop) {
+          if (backdrop.style.display !== 'none') {
+            backdrop.style.setProperty('display', 'none', 'important');
+            backdrop.style.setProperty('pointer-events', 'none', 'important');
+            backdrop.style.setProperty('visibility', 'hidden', 'important');
+          }
+        });
       } catch (_) {}
-    }, { capture: true, passive: false });
+    }, 150);
 
-    document.addEventListener('touchmove', function (e) {
-      try {
-        var target = e.target;
-        if (target && (target.classList.contains('tp-yt-iron-overlay-backdrop') ||
-                       target.closest('tp-yt-iron-overlay-backdrop'))) {
-          e.preventDefault();
-          e.stopPropagation();
-        }
-      } catch (_) {}
-    }, { capture: true, passive: false });
+    // Cleanup function if needed
+    return function cleanup() {
+      scrollMonitoringActive = false;
+      clearInterval(scrollMonitor);
+      clearInterval(styleMonitor);
+      clearInterval(backdropKiller);
+      document.removeEventListener('scroll', scrollListener);
+      window.removeEventListener('scroll', scrollListener);
+    };
   }
 
   /* ── Bootstrap ───────────────────────────────────────────────── */
 
   function bootstrapAdBlocker() {
     injectEarlyStyle();
-    installScrollUnlocker();
+    installAggressiveScrollUnlocker();
     purgeStaticAds();
     purgeBlockedYoutubePopups();
     attachPlayerObserver();
