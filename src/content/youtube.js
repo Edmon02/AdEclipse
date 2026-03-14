@@ -204,20 +204,27 @@
 
     if (!hasBlockedDialog) return;
 
+    // Aggressively remove all modal backdrops
     document.querySelectorAll(MODAL_BACKDROP_SEL).forEach(function (el) {
       try { el.removeAttribute('opened'); } catch (_) {}
       try { el.classList.remove('opened'); } catch (_) {}
       try { el.style.setProperty('display', 'none', 'important'); } catch (_) {}
       try { el.style.setProperty('pointer-events', 'none', 'important'); } catch (_) {}
+      try { el.style.setProperty('visibility', 'hidden', 'important'); } catch (_) {}
+      try { el.style.setProperty('opacity', '0', 'important'); } catch (_) {}
       try { el.remove(); } catch (_) {}
     });
 
+    // Unlock scrolling on html and body - use multiple approaches
     if (document.body) {
-      try { document.body.style.setProperty('overflow', 'auto', 'important'); } catch (_) {}
+      try { document.body.style.setProperty('overflow', 'visible', 'important'); } catch (_) {}
       try { document.body.style.setProperty('pointer-events', 'auto', 'important'); } catch (_) {}
+      try { document.body.style.setProperty('max-height', 'none', 'important'); } catch (_) {}
+      try { document.body.style.setProperty('max-width', 'none', 'important'); } catch (_) {}
     }
     try { document.documentElement.style.setProperty('overflow', 'auto', 'important'); } catch (_) {}
     try { document.documentElement.style.setProperty('pointer-events', 'auto', 'important'); } catch (_) {}
+    try { document.documentElement.style.setProperty('max-height', 'none', 'important'); } catch (_) {}
   }
 
   /* ── Core: nuke one frame of ad ──────────────────────────────── */
@@ -507,15 +514,98 @@
       '#movie_player.ad-interrupting .ytp-spinner-container' +
       '{display:none!important}' +
 
+      // CRITICAL: Force scrolling enabled at all times
+      'html {overflow:auto!important;pointer-events:auto!important}' +
+      'body {overflow:visible!important;pointer-events:auto!important}' +
+
       AD_OVERLAY_SEL + '{display:none!important}';
 
     (document.head || document.documentElement).appendChild(s);
+  }
+
+  /* ── Real-time scroll lock prevention ────────────────────────────── */
+
+  function installScrollUnlocker() {
+    // Watch for any attempt to lock scrolling via MutationObserver
+    var scrollLockObserver = new MutationObserver(function () {
+      try {
+        // Force-unlock if YouTube tries to re-apply overflow: hidden
+        if (document.documentElement.style.overflow === 'hidden') {
+          document.documentElement.style.setProperty('overflow', 'auto', 'important');
+        }
+        if (document.body && document.body.style.overflow === 'hidden') {
+          document.body.style.setProperty('overflow', 'visible', 'important');
+        }
+
+        // Also check for max-height constraints that might prevent scrolling
+        if (document.body && (document.body.style.maxHeight === '100%' || document.body.style.maxHeight === '100vh')) {
+          document.body.style.setProperty('max-height', 'none', 'important');
+        }
+      } catch (_) {}
+    });
+
+    // Observe style attribute changes on html and body
+    if (document.documentElement) {
+      scrollLockObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['style']
+      });
+    }
+    if (document.body) {
+      scrollLockObserver.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['style']
+      });
+    }
+
+    // Also watch for modal backdrops trying to block scroll
+    var backdropObserver = new MutationObserver(function () {
+      try {
+        document.querySelectorAll(MODAL_BACKDROP_SEL).forEach(function (el) {
+          if (el.style.display !== 'none') {
+            el.style.setProperty('display', 'none', 'important');
+            el.style.setProperty('pointer-events', 'none', 'important');
+          }
+        });
+      } catch (_) {}
+    });
+
+    if (document.body) {
+      backdropObserver.observe(document.body, {
+        childList: true,
+        subtree: true
+      });
+    }
+
+    // Disable wheel/touch events on backdrops that might intercept scroll
+    document.addEventListener('wheel', function (e) {
+      try {
+        var target = e.target;
+        if (target && (target.classList.contains('tp-yt-iron-overlay-backdrop') ||
+                       target.closest('tp-yt-iron-overlay-backdrop'))) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      } catch (_) {}
+    }, { capture: true, passive: false });
+
+    document.addEventListener('touchmove', function (e) {
+      try {
+        var target = e.target;
+        if (target && (target.classList.contains('tp-yt-iron-overlay-backdrop') ||
+                       target.closest('tp-yt-iron-overlay-backdrop'))) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      } catch (_) {}
+    }, { capture: true, passive: false });
   }
 
   /* ── Bootstrap ───────────────────────────────────────────────── */
 
   function bootstrapAdBlocker() {
     injectEarlyStyle();
+    installScrollUnlocker();
     purgeStaticAds();
     purgeBlockedYoutubePopups();
     attachPlayerObserver();
