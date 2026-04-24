@@ -1,0 +1,84 @@
+/* AdEclipse AI Scanner - Smooth Removal Animations */
+
+.adeclipse-ai-fade-out {
+  opacity: 0 !important;
+  transition: opacity 300ms ease-out !important;
+  pointer-events: none !important;
+}
+
+.adeclipse-ai-collapsing {
+  max-height: 0 !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  border-top-width: 0 !important;
+  border-bottom-width: 0 !important;
+  overflow: hidden !important;
+  transition: max-height 250ms ease-out,
+              margin 250ms ease-out,
+              padding 250ms ease-out,
+              border-width 250ms ease-out !important;
+  pointer-events: none !important;
+}
+
+.adeclipse-ai-hidden {
+  display: none !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  max-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  overflow: hidden !important;
+}
+
+/* Collapsed parent containers that held only ads */
+.adeclipse-ai-empty-container {
+  display: none !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  max-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  overflow: hidden !important;
+  line-height: 0 !important;
+  font-size: 0 !important;
+}
+
+/* Override min-height / height set inline on ad containers and their parents */
+[style*="min-height"]:has(> .adeclipse-ai-hidden),
+[style*="height"]:has(> .adeclipse-ai-hidden) {
+  min-height: 0 !important;
+  height: auto !important;
+}
+
+/* Debug mode: highlight detected ads before removal */
+.adeclipse-ai-detected {
+  outline: 2px dashed rgba(239, 68, 68, 0.6) !important;
+  outline-offset: -2px;
+  position: relative;
+}
+
+.adeclipse-ai-detected::after {
+  content: 'AI: Ad Detected';
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: rgba(239, 68, 68, 0.85);
+  color: white;
+  font-size: 10px;
+  font-family: system-ui, -apple-system, sans-serif;
+  padding: 2px 6px;
+  border-radius: 3px;
+  z-index: 999999;
+  pointer-events: none;
+  line-height: 1.4;
+}
+
+/* Scanning indicator */
+.adeclipse-ai-scanning {
+  outline: 1px dashed rgba(59, 130, 246, 0.3) !important;
+  outline-offset: -1px;
+}

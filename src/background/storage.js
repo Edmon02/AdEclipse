@@ -7,7 +7,7 @@ const DEFAULT_SETTINGS = {
   enabled: true,
   mode: 'balanced', // 'light', 'balanced', 'aggressive'
   debugMode: false,
-  
+
   // Block types
   blockTypes: {
     videoAds: true,
@@ -20,7 +20,7 @@ const DEFAULT_SETTINGS = {
     newsletterPopups: false,
     socialWidgets: false
   },
-  
+
   // YouTube-specific
   youtube: {
     enabled: true,
@@ -33,14 +33,14 @@ const DEFAULT_SETTINGS = {
     blockMerch: true,
     blockEndCards: false
   },
-  
+
   // Site lists
   whitelist: [],
   blacklist: [],
 
   // Website ad blocking mode: 'all' = block ads on all sites, 'manual' = only block on blacklisted sites
   websiteMode: 'manual',
-  
+
   // Performance
   performance: {
     lazyLoad: true,
@@ -49,7 +49,7 @@ const DEFAULT_SETTINGS = {
     cacheEnabled: true,
     useML: false // TensorFlow.js integration
   },
-  
+
   // UI preferences
   ui: {
     showBadge: true,
@@ -57,12 +57,31 @@ const DEFAULT_SETTINGS = {
     darkMode: 'auto',
     compactMode: false
   },
-  
+
   // Update settings
   updates: {
     autoUpdate: true,
     updateUrl: 'https://raw.githubusercontent.com/adeclipse/rules/main/',
     lastUpdate: null
+  },
+
+  // AI-powered ad detection via LLM APIs
+  ai: {
+    enabled: false,
+    provider: 'openai',
+    apiKey: '',
+    model: '',
+    customBaseUrl: '',
+    customModelName: '',
+    confidenceThreshold: 0.7,
+    scanMode: 'smart',       // 'smart' | 'ai-only' | 'ai-assist'
+    maxElementsPerBatch: 30,
+    cacheDurationHours: 24,
+    scanOnLoad: true,
+    continuousScan: true,
+    smoothRemoval: true,
+    showAiBadge: true,
+    usageStats: { totalTokens: 0, totalRequests: 0 }
   }
 };
 
@@ -72,18 +91,18 @@ export class StorageManager {
     this.cacheTimeout = 5000; // 5 seconds
     this.lastCacheTime = 0;
   }
-  
+
   /**
    * Get all settings
    */
   async getSettings() {
     const now = Date.now();
-    
+
     // Return cached if valid
     if (this.cache && (now - this.lastCacheTime) < this.cacheTimeout) {
       return this.cache;
     }
-    
+
     try {
       const result = await chrome.storage.local.get('settings');
       this.cache = result.settings || DEFAULT_SETTINGS;
@@ -94,7 +113,7 @@ export class StorageManager {
       return DEFAULT_SETTINGS;
     }
   }
-  
+
   /**
    * Update settings (partial update)
    */
@@ -110,7 +129,7 @@ export class StorageManager {
       throw error;
     }
   }
-  
+
   /**
    * Initialize default settings
    */
@@ -124,7 +143,7 @@ export class StorageManager {
       console.error('[StorageManager] Error initializing defaults:', error);
     }
   }
-  
+
   /**
    * Get custom rules
    */
@@ -140,7 +159,7 @@ export class StorageManager {
       return { domains: [], selectors: {} };
     }
   }
-  
+
   /**
    * Save custom rules
    */
@@ -152,7 +171,7 @@ export class StorageManager {
       throw error;
     }
   }
-  
+
   /**
    * Export all data
    */
@@ -169,7 +188,7 @@ export class StorageManager {
       throw error;
     }
   }
-  
+
   /**
    * Import all data
    */
@@ -178,13 +197,13 @@ export class StorageManager {
       if (!importData.data) {
         throw new Error('Invalid import data');
       }
-      
+
       // Clear existing data
       await chrome.storage.local.clear();
-      
+
       // Import new data
       await chrome.storage.local.set(importData.data);
-      
+
       // Clear cache
       this.cache = null;
     } catch (error) {
@@ -192,13 +211,13 @@ export class StorageManager {
       throw error;
     }
   }
-  
+
   /**
    * Deep merge helper
    */
   deepMerge(target, source) {
     const output = { ...target };
-    
+
     for (const key of Object.keys(source)) {
       if (source[key] instanceof Object && key in target) {
         output[key] = this.deepMerge(target[key], source[key]);
@@ -206,7 +225,7 @@ export class StorageManager {
         output[key] = source[key];
       }
     }
-    
+
     return output;
   }
 }

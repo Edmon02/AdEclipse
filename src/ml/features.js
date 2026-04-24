@@ -64,7 +64,7 @@ class FeatureExtractor {
     const viewportArea = viewportWidth * viewportHeight;
 
     // Check if matches common ad sizes
-    const isCommonAdSize = this.commonAdSizes.some(([w, h]) => 
+    const isCommonAdSize = this.commonAdSizes.some(([w, h]) =>
       Math.abs(rect.width - w) < 10 && Math.abs(rect.height - h) < 10
     );
 
@@ -238,8 +238,8 @@ class FeatureExtractor {
         if (adNetworkDomains.some(d => url.hostname.includes(d))) {
           adNetworkLinks++;
         }
-      } catch (e) {}
-      
+      } catch (e) { }
+
       if (link.target === '_blank') {
         blankTargetLinks++;
       }
@@ -268,12 +268,12 @@ class FeatureExtractor {
     const rect = element.getBoundingClientRect();
     const nearbyAds = document.querySelectorAll('[class*="ad"], [id*="ad"]');
     let nearbyAdCount = 0;
-    
+
     nearbyAds.forEach(ad => {
       if (ad !== element) {
         const adRect = ad.getBoundingClientRect();
         const distance = Math.sqrt(
-          Math.pow(rect.left - adRect.left, 2) + 
+          Math.pow(rect.left - adRect.left, 2) +
           Math.pow(rect.top - adRect.top, 2)
         );
         if (distance < 500) nearbyAdCount++;

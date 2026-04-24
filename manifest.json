@@ -75,7 +75,8 @@
       "resources": [
         "rules/*.json",
         "src/content/*.js",
-        "src/content/*.css"
+        "src/content/*.css",
+        "src/ml/*.js"
       ],
       "matches": ["<all_urls>"]
     }

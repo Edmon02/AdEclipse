@@ -151,7 +151,7 @@ class MLAdDetector {
 
     // Link features
     const links = element.querySelectorAll('a');
-    const externalLinks = Array.from(links).filter(a => 
+    const externalLinks = Array.from(links).filter(a =>
       a.href && !a.href.includes(window.location.hostname)
     ).length;
     features.push(externalLinks / (links.length || 1));
@@ -187,7 +187,7 @@ class MLAdDetector {
       const tensor = tf.tensor2d([features]);
       const prediction = this.model.predict(tensor);
       const probabilities = await prediction.data();
-      
+
       // Cleanup tensors
       tensor.dispose();
       prediction.dispose();
@@ -227,7 +227,7 @@ class MLAdDetector {
       const tensor = tf.tensor2d(features);
       const predictions = this.model.predict(tensor);
       const data = await predictions.data();
-      
+
       tensor.dispose();
       predictions.dispose();
 

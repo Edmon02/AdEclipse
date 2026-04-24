@@ -298,16 +298,50 @@ iframe[src*="/ad/"] {
 /* ================================
    Layout Fixes After Ad Removal
    ================================ */
+.adeclipse-collapsed {
+  display: none !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  max-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  overflow: hidden !important;
+  line-height: 0 !important;
+  font-size: 0 !important;
+}
+
+.adeclipse-empty-container {
+  display: none !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  max-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  overflow: hidden !important;
+  line-height: 0 !important;
+  font-size: 0 !important;
+}
+
 /* Prevent layout shift from removed ads */
 [style*="min-height"]:empty,
-[style*="min-height"]:has(> .adeclipse-collapsed) {
+[style*="min-height"]:has(> .adeclipse-collapsed),
+[style*="min-height"]:has(> .adeclipse-empty-container) {
+  min-height: 0 !important;
+  height: auto !important;
+}
+
+[style*="height"]:has(> .adeclipse-collapsed) {
+  height: auto !important;
   min-height: 0 !important;
 }
 
 /* Fix gaps left by removed ads */
 article > .adeclipse-collapsed,
 .content > .adeclipse-collapsed,
-main > .adeclipse-collapsed {
+main > .adeclipse-collapsed,
+aside > .adeclipse-collapsed {
   margin: 0 !important;
   padding: 0 !important;
 }
