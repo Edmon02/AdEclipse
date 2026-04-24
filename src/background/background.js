@@ -7,11 +7,16 @@
 import { StorageManager } from './storage.js';
 import { StatsTracker } from './stats.js';
 import { RulesManager } from './rules.js';
+import { AIAdDetector } from '../ml/ai-detector.js';
+import { AIProvider } from '../ml/ai-provider.js';
 
 // Initialize managers
 const storage = new StorageManager();
 const stats = new StatsTracker();
 const rules = new RulesManager();
+
+// AI detector (lazy-loaded when enabled)
+let aiDetector = null;
 
 // Debug mode flag
 let DEBUG_MODE = false;
@@ -43,6 +48,9 @@ async function initialize() {
     // Sync declarative rules based on enabled state
     await syncDeclarativeRules(settings.enabled);
 
+    // Initialize AI detector if enabled
+    await initAIDetector(settings);
+
     // Set up alarms for periodic tasks
     setupAlarms();
     
@@ -64,6 +72,25 @@ function setupAlarms() {
   
   // Sync stats every 5 minutes
   chrome.alarms.create('syncStats', { periodInMinutes: 5 });
+}
+
+/**
+ * Initialize AI ad detector
+ */
+async function initAIDetector(settings) {
+  if (!settings?.ai?.enabled || !settings.ai.apiKey) {
+    aiDetector = null;
+    return;
+  }
+
+  try {
+    aiDetector = new AIAdDetector();
+    await aiDetector.init(settings);
+    log.info('AI detector initialized');
+  } catch (error) {
+    log.error('AI detector init failed:', error);
+    aiDetector = null;
+  }
 }
 
 // Listen for alarms
@@ -110,6 +137,7 @@ async function handleMessage(message, sender) {
       await storage.updateSettings(data);
       const updatedSettings = await storage.getSettings();
       await syncDeclarativeRules(updatedSettings.enabled);
+      await initAIDetector(updatedSettings);
       await updateBadge();
       return { success: true };
     
@@ -177,10 +205,83 @@ async function handleMessage(message, sender) {
       await storage.saveCustomRules(data);
       await rules.reloadRules();
       return { success: true };
+
+    // AI Detection handlers
+    case 'AI_SCAN_ELEMENTS':
+      return await handleAIScan(data);
+
+    case 'AI_GET_CONFIG': {
+      const aiSettings = await storage.getSettings();
+      const ai = aiSettings.ai || {};
+      return {
+        enabled: ai.enabled && !!ai.apiKey,
+        scanMode: ai.scanMode || 'smart',
+        smoothRemoval: ai.smoothRemoval !== false,
+        debugMode: aiSettings.debugMode || false,
+        confidenceThreshold: ai.confidenceThreshold ?? 0.7,
+        scanOnLoad: ai.scanOnLoad !== false,
+        continuousScan: ai.continuousScan !== false
+      };
+    }
+
+    case 'AI_TEST_CONNECTION': {
+      try {
+        const testProvider = new AIProvider();
+        testProvider.configure(data);
+        return await testProvider.testConnection();
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    }
+
+    case 'AI_GET_PROVIDERS':
+      return { providers: AIProvider.getProviders() };
+
+    case 'AI_FETCH_MODELS': {
+      try {
+        const models = await AIProvider.fetchRemoteModels(data.provider, data.apiKey);
+        return { models };
+      } catch (error) {
+        return { models: [], error: error.message };
+      }
+    }
+
+    case 'AI_GET_USAGE':
+      return {
+        usage: aiDetector ? aiDetector.getUsageStats() : { totalTokens: 0, totalRequests: 0 },
+        cache: aiDetector ? aiDetector.getCacheStats() : { memoryCacheSize: 0, patternCacheSize: 0 }
+      };
+
+    case 'AI_CLEAR_CACHE':
+      if (aiDetector) aiDetector.clearCache();
+      return { success: true };
     
     default:
       log.warn('Unknown message type:', type);
       return { success: false, error: 'Unknown message type' };
+  }
+}
+
+/**
+ * Handle AI scan request from content script
+ */
+async function handleAIScan(data) {
+  if (!aiDetector) {
+    const settings = await storage.getSettings();
+    if (settings?.ai?.enabled && settings.ai.apiKey) {
+      await initAIDetector(settings);
+    }
+    if (!aiDetector) {
+      return { results: [], error: 'AI detector not available' };
+    }
+  }
+
+  try {
+    const results = await aiDetector.scanElements(data.elements, data.domain);
+    return { results };
+  } catch (error) {
+    log.error('AI scan error:', error);
+    return { results: [], error: error.message };
   }
 }
 
@@ -313,7 +414,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 
           chrome.scripting.executeScript({
             target: { tabId, allFrames: true },
-            files: ['src/content/youtube.js'],
+            files: ['src/content/youtube-utils.js', 'src/content/youtube.js'],
             injectImmediately: true
           }).catch(() => {});
         } else if (!isYouTube) {
@@ -336,6 +437,33 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
           files: ['src/content/anti-adblock.js'],
           injectImmediately: true
         }).catch(() => {});
+
+        // Inject AI scanner and video ad interceptor if enabled
+        if (settings.ai?.enabled && settings.ai.apiKey) {
+          chrome.scripting.executeScript({
+            target: { tabId, allFrames: true },
+            files: ['src/content/player-mainworld-patch.js'],
+            world: 'MAIN',
+            injectImmediately: true
+          }).catch(() => {});
+
+          chrome.scripting.insertCSS({
+            target: { tabId, allFrames: true },
+            files: ['src/content/ai-scanner.css']
+          }).catch(() => {});
+
+          chrome.scripting.executeScript({
+            target: { tabId, allFrames: true },
+            files: ['src/content/ai-scanner.js'],
+            injectImmediately: true
+          }).catch(() => {});
+
+          chrome.scripting.executeScript({
+            target: { tabId, allFrames: true },
+            files: ['src/content/video-ad-interceptor.js'],
+            injectImmediately: true
+          }).catch(() => {});
+        }
       }
     } catch (error) {
       log.debug('Script injection error:', error.message);

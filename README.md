@@ -22,51 +22,70 @@
 ## Features
 
 ### 🎯 Core Functionality
+
 - **YouTube Ad Blocking**: Blocks video ads, overlays, banners, sponsored content, and skippable/non-skippable pre-rolls
 - **Universal Blocking**: Works on all websites including news sites, social media, and sites with Google AdSense
 - **500+ Ad Domains**: Comprehensive blocklist covering all major ad networks
 - **DeclarativeNetRequest**: Uses Manifest V3's efficient network blocking API
 
 ### 🚀 Performance
+
 - **< 50ms Overhead**: Optimized for minimal performance impact
 - **Debounced Observers**: Smart MutationObserver implementation prevents CPU spikes
 - **Memory Efficient**: Uses WeakSet for element tracking to prevent memory leaks
 
+### 🤖 AI-Powered Ad Detection
+
+- **LLM API Integration**: Connect your own API key from OpenAI, Anthropic, OpenRouter, Groq, or any OpenAI-compatible endpoint
+- **Intelligent Classification**: LLM analyzes page element metadata to detect ads that evade traditional pattern-matching
+- **Searchable Model Picker**: Browse and search hundreds of models with live pricing from OpenRouter
+- **Response Caching**: LRU cache with domain-level pattern learning reduces API calls
+- **Smooth Removal**: Detected ads fade out and collapse seamlessly, including parent containers
+- **Video Ad Interception**: Main-world player patching neutralizes pre-roll ad queues on streaming/movie sites before they play
+- **Privacy-First**: Only element metadata (tag names, classes, dimensions) is sent to your chosen provider — no personal data, cookies, or history
+
 ### 🔒 Privacy
+
 - **No Data Collection**: All processing happens locally
 - **No Telemetry**: No analytics, tracking pixels, or user profiling
 - **Local-First Operation**: Blocking and detection run on-device (optional rule updates can be fetched when auto-update is enabled)
 - **On-Device ML**: Optional TensorFlow.js-based ad detection runs entirely in your browser
+- **Your API Key, Your Control**: AI detection keys are stored locally and never leave your device
 
 ### 📊 Features Overview
 
-| Feature | Description |
-|---------|-------------|
-| Video Ad Blocking | Skips YouTube video ads automatically |
-| Banner Ad Blocking | Removes banner ads across all sites |
-| Popup Blocking | Prevents popup and overlay ads |
-| Anti-Adblock Bypass | Defeats adblock detection scripts |
-| Custom Rules | Add your own CSS selectors per site |
-| Whitelist | Disable blocking on specific sites |
-| Statistics | Track blocked ads and saved time |
-| Dark Mode | Full dark theme support |
-| Import/Export | Backup and restore settings |
+| Feature                | Description                                            |
+| ---------------------- | ------------------------------------------------------ |
+| Video Ad Blocking      | Skips YouTube video ads automatically                  |
+| Banner Ad Blocking     | Removes banner ads across all sites                    |
+| Popup Blocking         | Prevents popup and overlay ads                         |
+| Anti-Adblock Bypass    | Defeats adblock detection scripts                      |
+| AI Ad Detection        | LLM-powered intelligent ad classification              |
+| Video Pre-roll Bypass  | Intercepts and skips movie/streaming pre-roll ad queues |
+| Custom Rules           | Add your own CSS selectors per site                    |
+| Whitelist              | Disable blocking on specific sites                     |
+| Statistics             | Track blocked ads and saved time                       |
+| Dark Mode              | Full dark theme support                                |
+| Import/Export          | Backup and restore settings                            |
 
 ---
 
 ## Installation
 
 ### Chrome Web Store (Recommended)
-*Coming soon*
+
+_Coming soon_
 
 ### Firefox Add-ons
-*Coming soon*
+
+_Coming soon_
 
 ### Manual Installation
 
 #### Chrome / Chromium-based Browsers
 
 1. Download or clone this repository:
+
    ```bash
    git clone https://github.com/Edmon02/adeclipse.git
    cd adeclipse
@@ -138,7 +157,11 @@ AdEclipse/
 │   │   ├── youtube.css     # YouTube ad hiding styles
 │   │   ├── general.js      # General site blocking
 │   │   ├── general.css     # General ad hiding styles
-│   │   └── anti-adblock.js # Adblock detection bypass
+│   │   ├── anti-adblock.js # Adblock detection bypass
+│   │   ├── ai-scanner.js   # AI element scanner
+│   │   ├── ai-scanner.css  # AI removal animations
+│   │   ├── video-ad-interceptor.js    # Video pre-roll interceptor
+│   │   └── player-mainworld-patch.js  # Main-world player ad neutralizer
 │   ├── popup/
 │   │   ├── popup.html      # Popup interface
 │   │   ├── popup.css       # Popup styles
@@ -149,7 +172,11 @@ AdEclipse/
 │   │   └── options.js      # Settings logic
 │   └── ml/
 │       ├── detector.js     # ML-based ad detection
-│       └── features.js     # Feature extraction
+│       ├── features.js     # Feature extraction
+│       ├── ai-provider.js  # Multi-provider LLM client
+│       ├── ai-detector.js  # AI detection orchestrator
+│       ├── ai-cache.js     # LRU verdict cache
+│       └── prompt-templates.js # LLM prompt engineering
 ├── icons/
 │   └── *.png               # Extension icons
 └── tests/
@@ -181,13 +208,13 @@ npm test -- --testPathPattern=youtube
 
 ```javascript
 // Example test for ad detection
-describe('YouTubeAdBlocker', () => {
-  test('should detect video ads', () => {
-    const adElement = createMockElement('.ytp-ad-module');
+describe("YouTubeAdBlocker", () => {
+  test("should detect video ads", () => {
+    const adElement = createMockElement(".ytp-ad-module");
     expect(isVideoAd(adElement)).toBe(true);
   });
 
-  test('should skip detected ads', async () => {
+  test("should skip detected ads", async () => {
     const video = createMockVideo({ ad: true });
     await skipAd(video);
     expect(video.currentTime).toBe(video.duration);
@@ -237,28 +264,39 @@ Create a new content script or add selectors to `rules/site-selectors.json`:
 
 ### Blocking Modes
 
-| Mode | Description |
-|------|-------------|
-| Balanced | Recommended default with performance optimization |
-| Aggressive | Maximum blocking, may affect some content |
-| Light | Essential ads only, less intrusive |
+| Mode       | Description                                       |
+| ---------- | ------------------------------------------------- |
+| Balanced   | Recommended default with performance optimization |
+| Aggressive | Maximum blocking, may affect some content         |
+| Light      | Essential ads only, less intrusive                |
 
 ### YouTube Settings
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| Auto-skip | On | Automatically skip skippable ads |
-| Skip/End Ad Handling | On | Seeks ad playback to end and triggers skip when available |
-| Mute | On | Mute ads during playback |
-| Overlay Cleanup | On | Removes YouTube ad overlays and promoted UI elements |
+| Setting              | Default | Description                                               |
+| -------------------- | ------- | --------------------------------------------------------- |
+| Auto-skip            | On      | Automatically skip skippable ads                          |
+| Skip/End Ad Handling | On      | Seeks ad playback to end and triggers skip when available |
+| Mute                 | On      | Mute ads during playback                                  |
+| Overlay Cleanup      | On      | Removes YouTube ad overlays and promoted UI elements      |
+
+### AI Detection Settings
+
+| Setting              | Default | Description                                      |
+| -------------------- | ------- | ------------------------------------------------ |
+| AI Provider          | OpenAI  | OpenAI, Anthropic, OpenRouter, Groq, or Custom   |
+| Scan Mode            | Smart   | Smart (heuristic + AI), AI-only, or AI-assist    |
+| Confidence Threshold | 70%     | Minimum confidence to remove detected elements   |
+| Continuous Scan      | On      | Re-scan on dynamic content changes               |
+| Smooth Removal       | On      | Animated fade-out and collapse                   |
+| Cache Duration       | 24h     | How long AI verdicts are cached                  |
 
 ### Performance Settings
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| Observer debounce | 100ms | MutationObserver throttling |
-| Performance mode | Off | Reduces observation frequency |
-| ML detection | Off | Enable TensorFlow.js detection |
+| Setting           | Default | Description                    |
+| ----------------- | ------- | ------------------------------ |
+| Observer debounce | 100ms   | MutationObserver throttling    |
+| Performance mode  | Off     | Reduces observation frequency  |
+| ML detection      | Off     | Enable TensorFlow.js detection |
 
 ---
 
@@ -268,22 +306,41 @@ Create a new content script or add selectors to `rules/site-selectors.json`:
 
 ```javascript
 // Get current settings
-const settings = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
+const settings = await chrome.runtime.sendMessage({ type: "GET_SETTINGS" });
 
 // Update settings
 await chrome.runtime.sendMessage({
-  type: 'UPDATE_SETTINGS',
-  data: { enabled: true, mode: 'balanced' }
+  type: "UPDATE_SETTINGS",
+  data: { enabled: true, mode: "balanced" },
 });
 
 // Get statistics
-const stats = await chrome.runtime.sendMessage({ type: 'GET_STATS' });
+const stats = await chrome.runtime.sendMessage({ type: "GET_STATS" });
 console.log(`Blocked today: ${stats.today.adsBlocked}`);
 
 // Record blocked ad
 await chrome.runtime.sendMessage({
-  type: 'INCREMENT_BLOCKED',
-  data: { type: 'videoAd', domain: 'youtube.com' }
+  type: "INCREMENT_BLOCKED",
+  data: { type: "videoAd", domain: "youtube.com" },
+});
+```
+
+### AI Detection Messages
+
+```javascript
+// Scan elements for ads using AI
+const results = await chrome.runtime.sendMessage({
+  type: "AI_SCAN_ELEMENTS",
+  data: { elements: [{ tag: "div", classes: "ad-banner", ... }] },
+});
+
+// Test AI connection
+const test = await chrome.runtime.sendMessage({ type: "AI_TEST_CONNECTION" });
+
+// Fetch available models for a provider
+const { models } = await chrome.runtime.sendMessage({
+  type: "AI_FETCH_MODELS",
+  data: { provider: "openrouter", apiKey: "sk-..." },
 });
 ```
 
@@ -292,13 +349,13 @@ await chrome.runtime.sendMessage({
 ```javascript
 // Get site state for current page
 const siteState = await chrome.runtime.sendMessage({
-  type: 'GET_SITE_ENABLED'
+  type: "GET_SITE_ENABLED",
 });
 
 // Request selectors for hostname
 const selectors = await chrome.runtime.sendMessage({
-  type: 'GET_SELECTORS',
-  data: { hostname: window.location.hostname }
+  type: "GET_SELECTORS",
+  data: { hostname: window.location.hostname },
 });
 ```
 
@@ -330,14 +387,14 @@ const selectors = await chrome.runtime.sendMessage({
 
 ## Browser Compatibility
 
-| Browser | Version | Status |
-|---------|---------|--------|
-| Chrome | 111+ | ✅ Full support |
-| Edge | 111+ | ✅ Full support |
-| Firefox | 109+ | ✅ Full support |
-| Brave | Latest | ✅ Full support |
-| Opera | 97+ | ✅ Full support |
-| Safari | - | ❌ Not supported |
+| Browser | Version | Status           |
+| ------- | ------- | ---------------- |
+| Chrome  | 111+    | ✅ Full support  |
+| Edge    | 111+    | ✅ Full support  |
+| Firefox | 109+    | ✅ Full support  |
+| Brave   | Latest  | ✅ Full support  |
+| Opera   | 97+     | ✅ Full support  |
+| Safari  | -       | ❌ Not supported |
 
 ---
 
@@ -382,7 +439,18 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## Changelog
 
+### v1.1.0
+
+- **AI-Powered Ad Detection** — connect OpenAI, Anthropic, OpenRouter, Groq, or any OpenAI-compatible LLM to classify and remove ads intelligently
+- **Searchable Model Picker** — browse hundreds of models with live pricing from OpenRouter
+- **Video Pre-roll Bypass** — main-world player patching intercepts ad queues on streaming/movie sites (JWPlayer, Video.js, Hls.js, Shaka)
+- **Empty Space Collapse** — parent containers are recursively collapsed after ad removal, eliminating blank gaps
+- **Masked API Key Preview** — saved keys display securely in the settings UI
+- **Improved Settings Persistence** — robust rehydration of AI settings on page load with auto-save on input
+- **62 Unit Tests** — comprehensive coverage for AI provider, cache, detector, and scanner modules
+
 ### v1.0.0 (Initial Release)
+
 - YouTube video ad blocking
 - General website ad blocking
 - Anti-adblock bypass
@@ -400,6 +468,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 - Manifest V3 migration guidance from Google Chrome team
 - Community filter lists for domain references
 - TensorFlow.js for ML capabilities
+- OpenRouter for multi-model API access and pricing data
 
 ---
 

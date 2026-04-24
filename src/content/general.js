@@ -602,29 +602,84 @@
     return text;
   }
 
+  const STRUCTURAL_TAGS = new Set([
+    'HTML', 'BODY', 'MAIN', 'ARTICLE', 'HEADER', 'FOOTER', 'NAV'
+  ]);
+
   /**
-   * Remove element with animation
+   * Remove element with animation and collapse empty parent containers
    */
   function removeElement(element) {
     if (!element || state.elementsRemoved.has(element)) return;
     
     state.elementsRemoved.add(element);
     
-    // Add removing class for animation
     element.classList.add('adeclipse-removing');
     
-    // Remove after animation
     setTimeout(() => {
       element.classList.add('adeclipse-collapsed');
+      element.style.setProperty('min-height', '0', 'important');
+      element.style.setProperty('height', '0', 'important');
+      element.style.setProperty('margin', '0', 'important');
+      element.style.setProperty('padding', '0', 'important');
       
-      // Optionally fully remove from DOM
       if (CONFIG.mode === 'aggressive') {
         element.remove();
       }
       
+      collapseEmptyAncestors(element);
+      
       state.adsBlocked++;
       notifyAdBlocked();
     }, 150);
+  }
+
+  function collapseEmptyAncestors(element) {
+    let parent = element.parentElement;
+    let depth = 0;
+
+    while (parent && depth < 6) {
+      if (STRUCTURAL_TAGS.has(parent.tagName)) break;
+      if (parent.id && /^(content|main|app|root|wrapper|page)$/i.test(parent.id)) break;
+
+      if (isContainerEffectivelyEmpty(parent)) {
+        parent.classList.add('adeclipse-empty-container');
+        parent.style.setProperty('min-height', '0', 'important');
+        parent.style.setProperty('height', '0', 'important');
+        parent.style.setProperty('margin', '0', 'important');
+        parent.style.setProperty('padding', '0', 'important');
+        state.elementsRemoved.add(parent);
+        parent = parent.parentElement;
+        depth++;
+      } else {
+        parent.style.setProperty('min-height', '0', 'important');
+        break;
+      }
+    }
+  }
+
+  function isContainerEffectivelyEmpty(el) {
+    for (const child of el.children) {
+      if (child.classList.contains('adeclipse-collapsed') ||
+          child.classList.contains('adeclipse-empty-container') ||
+          child.classList.contains('adeclipse-removing')) {
+        continue;
+      }
+      try {
+        const style = getComputedStyle(child);
+        if (style.display === 'none' || style.visibility === 'hidden') continue;
+        const rect = child.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) return false;
+      } catch (e) { return false; }
+    }
+
+    let directText = '';
+    for (const node of el.childNodes) {
+      if (node.nodeType === 3) directText += node.textContent;
+    }
+    if (directText.trim().length > 0) return false;
+
+    return true;
   }
   
   /**
