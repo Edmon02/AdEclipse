@@ -7,14 +7,33 @@
 import { StorageManager } from './storage.js';
 import { StatsTracker } from './stats.js';
 import { RulesManager } from './rules.js';
+import { YouTubeDiagnosticsManager } from './youtube-diagnostics.js';
+import { buildYouTubeSessionRules } from './youtube-session-rules.js';
+import { AIAdDetector } from '../ml/ai-detector.js';
+import { AIProvider } from '../ml/ai-provider.js';
 
 // Initialize managers
 const storage = new StorageManager();
 const stats = new StatsTracker();
 const rules = new RulesManager();
+const youtubeDiagnostics = new YouTubeDiagnosticsManager();
+
+// AI detector (lazy-loaded when enabled)
+let aiDetector = null;
+let youtubeRegistrationsActive = false;
 
 // Debug mode flag
 let DEBUG_MODE = false;
+
+const YOUTUBE_CONTENT_SCRIPT_IDS = [
+  'adeclipse-youtube-mainworld',
+  'adeclipse-youtube-isolated'
+];
+
+const YOUTUBE_MATCHES = [
+  '*://youtube.com/*',
+  '*://*.youtube.com/*'
+];
 
 /**
  * Logger utility that respects debug mode
@@ -43,6 +62,16 @@ async function initialize() {
     // Sync declarative rules based on enabled state
     await syncDeclarativeRules(settings.enabled);
 
+    // Register document-start YouTube scripts when supported
+    await syncContentScriptRegistrations(settings);
+
+    // Keep YouTube diagnostics/session rules in sync with current settings
+    await youtubeDiagnostics.init(settings);
+    await syncYouTubeSessionRules(settings);
+
+    // Initialize AI detector if enabled
+    await initAIDetector(settings);
+
     // Set up alarms for periodic tasks
     setupAlarms();
     
@@ -52,6 +81,88 @@ async function initialize() {
     log.info('AdEclipse initialized successfully');
   } catch (error) {
     log.error('Initialization error:', error);
+  }
+}
+
+function buildYouTubeExcludeMatches(settings) {
+  const whitelist = settings?.whitelist || [];
+
+  return [...new Set(
+    whitelist
+      .filter((hostname) => hostname === 'youtube.com' || hostname.endsWith('.youtube.com'))
+      .map((hostname) => `*://${hostname}/*`)
+  )];
+}
+
+function supportsDynamicYouTubeRegistration() {
+  return Boolean(
+    chrome.scripting?.registerContentScripts &&
+    chrome.scripting?.unregisterContentScripts
+  );
+}
+
+function shouldRegisterYouTubeScripts(settings) {
+  return Boolean(
+    supportsDynamicYouTubeRegistration() &&
+    settings?.enabled &&
+    settings.youtube?.enabled !== false &&
+    settings.youtube?.useDocumentStartScripts !== false
+  );
+}
+
+function getYouTubeContentScriptRegistrations(settings) {
+  const excludeMatches = buildYouTubeExcludeMatches(settings);
+
+  return [
+    {
+      id: YOUTUBE_CONTENT_SCRIPT_IDS[0],
+      matches: YOUTUBE_MATCHES,
+      excludeMatches,
+      js: ['src/content/youtube-mainworld.js'],
+      allFrames: true,
+      runAt: 'document_start',
+      world: 'MAIN'
+    },
+    {
+      id: YOUTUBE_CONTENT_SCRIPT_IDS[1],
+      matches: YOUTUBE_MATCHES,
+      excludeMatches,
+      css: ['src/content/youtube.css'],
+      js: ['src/content/youtube-utils.js', 'src/content/youtube.js'],
+      allFrames: true,
+      runAt: 'document_start',
+      world: 'ISOLATED'
+    }
+  ];
+}
+
+async function syncContentScriptRegistrations(settings) {
+  if (!supportsDynamicYouTubeRegistration()) {
+    youtubeRegistrationsActive = false;
+    return;
+  }
+
+  try {
+    await chrome.scripting.unregisterContentScripts({ ids: YOUTUBE_CONTENT_SCRIPT_IDS });
+  } catch (error) {
+    log.debug('YouTube content script unregister skipped:', error?.message || error);
+  }
+
+  youtubeRegistrationsActive = false;
+
+  if (!shouldRegisterYouTubeScripts(settings)) {
+    return;
+  }
+
+  try {
+    await chrome.scripting.registerContentScripts(
+      getYouTubeContentScriptRegistrations(settings)
+    );
+    youtubeRegistrationsActive = true;
+    log.debug('Registered document-start YouTube content scripts');
+  } catch (error) {
+    youtubeRegistrationsActive = false;
+    log.warn('Falling back to tab-update YouTube injection:', error?.message || error);
   }
 }
 
@@ -66,6 +177,51 @@ function setupAlarms() {
   chrome.alarms.create('syncStats', { periodInMinutes: 5 });
 }
 
+/**
+ * Initialize AI ad detector
+ */
+async function initAIDetector(settings) {
+  if (!settings?.ai?.enabled || !settings.ai.apiKey) {
+    aiDetector = null;
+    return;
+  }
+
+  try {
+    aiDetector = new AIAdDetector();
+    await aiDetector.init(settings);
+    log.info('AI detector initialized');
+  } catch (error) {
+    log.error('AI detector init failed:', error);
+    aiDetector = null;
+  }
+}
+
+async function syncYouTubeSessionRules(settings) {
+  if (!chrome.declarativeNetRequest?.updateSessionRules) {
+    return;
+  }
+
+  try {
+    const existingRules = await chrome.declarativeNetRequest.getSessionRules();
+    const existingRuleIds = existingRules
+      .map((rule) => rule.id)
+      .filter((ruleId) => ruleId >= 20000 && ruleId < 21000);
+
+    const nextRules = buildYouTubeSessionRules(settings, {
+      sessionRuleGroups: rules.getYouTubeSessionRuleConfig()
+    });
+
+    await chrome.declarativeNetRequest.updateSessionRules({
+      removeRuleIds: existingRuleIds,
+      addRules: nextRules
+    });
+
+    log.debug('YouTube session rules synced:', nextRules.length);
+  } catch (error) {
+    log.error('Failed to sync YouTube session rules:', error);
+  }
+}
+
 // Listen for alarms
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   log.debug('Alarm triggered:', alarm.name);
@@ -73,6 +229,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   switch (alarm.name) {
     case 'updateRules':
       await rules.checkForUpdates();
+      await syncYouTubeSessionRules(await storage.getSettings());
       break;
     case 'syncStats':
       await stats.sync();
@@ -110,6 +267,10 @@ async function handleMessage(message, sender) {
       await storage.updateSettings(data);
       const updatedSettings = await storage.getSettings();
       await syncDeclarativeRules(updatedSettings.enabled);
+      await syncContentScriptRegistrations(updatedSettings);
+      youtubeDiagnostics.configure(updatedSettings);
+      await syncYouTubeSessionRules(updatedSettings);
+      await initAIDetector(updatedSettings);
       await updateBadge();
       return { success: true };
     
@@ -155,6 +316,23 @@ async function handleMessage(message, sender) {
     
     case 'REPORT_BUG':
       return await handleBugReport(data);
+
+    case 'YOUTUBE_DIAGNOSTIC_EVENT':
+      return youtubeDiagnostics.record({
+        ...data,
+        url: data?.url || sender.url || sender.tab?.url,
+        tabId: sender.tab?.id
+      });
+
+    case 'GET_YOUTUBE_DIAGNOSTICS':
+      return youtubeDiagnostics.getSnapshot(data?.limit || 50);
+
+    case 'EXPORT_YOUTUBE_DIAGNOSTICS':
+      return await youtubeDiagnostics.exportSnapshot(data?.limit);
+
+    case 'CLEAR_YOUTUBE_DIAGNOSTICS':
+      await youtubeDiagnostics.clear();
+      return { success: true };
     
     case 'TOGGLE_SITE':
       return await toggleSiteBlocking(data.hostname, data.enabled);
@@ -176,11 +354,85 @@ async function handleMessage(message, sender) {
     case 'SAVE_CUSTOM_RULES':
       await storage.saveCustomRules(data);
       await rules.reloadRules();
+      await syncYouTubeSessionRules(await storage.getSettings());
+      return { success: true };
+
+    // AI Detection handlers
+    case 'AI_SCAN_ELEMENTS':
+      return await handleAIScan(data);
+
+    case 'AI_GET_CONFIG': {
+      const aiSettings = await storage.getSettings();
+      const ai = aiSettings.ai || {};
+      return {
+        enabled: ai.enabled && !!ai.apiKey,
+        scanMode: ai.scanMode || 'smart',
+        smoothRemoval: ai.smoothRemoval !== false,
+        debugMode: aiSettings.debugMode || false,
+        confidenceThreshold: ai.confidenceThreshold ?? 0.7,
+        scanOnLoad: ai.scanOnLoad !== false,
+        continuousScan: ai.continuousScan !== false
+      };
+    }
+
+    case 'AI_TEST_CONNECTION': {
+      try {
+        const testProvider = new AIProvider();
+        testProvider.configure(data);
+        return await testProvider.testConnection();
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    }
+
+    case 'AI_GET_PROVIDERS':
+      return { providers: AIProvider.getProviders() };
+
+    case 'AI_FETCH_MODELS': {
+      try {
+        const models = await AIProvider.fetchRemoteModels(data.provider, data.apiKey);
+        return { models };
+      } catch (error) {
+        return { models: [], error: error.message };
+      }
+    }
+
+    case 'AI_GET_USAGE':
+      return {
+        usage: aiDetector ? aiDetector.getUsageStats() : { totalTokens: 0, totalRequests: 0 },
+        cache: aiDetector ? aiDetector.getCacheStats() : { memoryCacheSize: 0, patternCacheSize: 0 }
+      };
+
+    case 'AI_CLEAR_CACHE':
+      if (aiDetector) aiDetector.clearCache();
       return { success: true };
     
     default:
       log.warn('Unknown message type:', type);
       return { success: false, error: 'Unknown message type' };
+  }
+}
+
+/**
+ * Handle AI scan request from content script
+ */
+async function handleAIScan(data) {
+  if (!aiDetector) {
+    const settings = await storage.getSettings();
+    if (settings?.ai?.enabled && settings.ai.apiKey) {
+      await initAIDetector(settings);
+    }
+    if (!aiDetector) {
+      return { results: [], error: 'AI detector not available' };
+    }
+  }
+
+  try {
+    const results = await aiDetector.scanElements(data.elements, data.domain);
+    return { results };
+  } catch (error) {
+    log.error('AI scan error:', error);
+    return { results: [], error: error.message };
   }
 }
 
@@ -201,6 +453,9 @@ async function toggleSiteBlocking(hostname, enabled) {
   }
   
   await storage.updateSettings({ whitelist: settings.whitelist });
+  const updatedSettings = await storage.getSettings();
+  await syncContentScriptRegistrations(updatedSettings);
+  await syncYouTubeSessionRules(updatedSettings);
   return { success: true, whitelist: settings.whitelist };
 }
 
@@ -214,7 +469,8 @@ async function handleBugReport(data) {
     userAgent: data.userAgent,
     url: data.url,
     description: data.description,
-    logs: DEBUG_MODE ? data.logs : '[Debug mode disabled]'
+    logs: DEBUG_MODE ? data.logs : '[Debug mode disabled]',
+    diagnostics: DEBUG_MODE ? await youtubeDiagnostics.exportSnapshot(20) : '[YouTube diagnostics disabled]'
   };
   
   log.info('Bug report generated:', reportData);
@@ -296,7 +552,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 
       // Only inject scripts when the extension is enabled for this site
       if (isEnabled) {
-        if (isYouTube && settings.youtube?.enabled !== false) {
+        if (isYouTube && settings.youtube?.enabled !== false && !youtubeRegistrationsActive) {
           // Inject YouTube main-world script
           chrome.scripting.executeScript({
             target: { tabId, allFrames: true },
@@ -313,7 +569,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 
           chrome.scripting.executeScript({
             target: { tabId, allFrames: true },
-            files: ['src/content/youtube.js'],
+            files: ['src/content/youtube-utils.js', 'src/content/youtube.js'],
             injectImmediately: true
           }).catch(() => {});
         } else if (!isYouTube) {
@@ -336,6 +592,33 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
           files: ['src/content/anti-adblock.js'],
           injectImmediately: true
         }).catch(() => {});
+
+        // Inject AI scanner and video ad interceptor if enabled
+        if (settings.ai?.enabled && settings.ai.apiKey) {
+          chrome.scripting.executeScript({
+            target: { tabId, allFrames: true },
+            files: ['src/content/player-mainworld-patch.js'],
+            world: 'MAIN',
+            injectImmediately: true
+          }).catch(() => {});
+
+          chrome.scripting.insertCSS({
+            target: { tabId, allFrames: true },
+            files: ['src/content/ai-scanner.css']
+          }).catch(() => {});
+
+          chrome.scripting.executeScript({
+            target: { tabId, allFrames: true },
+            files: ['src/content/ai-scanner.js'],
+            injectImmediately: true
+          }).catch(() => {});
+
+          chrome.scripting.executeScript({
+            target: { tabId, allFrames: true },
+            files: ['src/content/video-ad-interceptor.js'],
+            injectImmediately: true
+          }).catch(() => {});
+        }
       }
     } catch (error) {
       log.debug('Script injection error:', error.message);
@@ -383,6 +666,7 @@ if (chrome.declarativeNetRequest?.onRuleMatchedDebug) {
   chrome.declarativeNetRequest.onRuleMatchedDebug.addListener((info) => {
     log.debug('Rule matched:', info.rule.ruleId, info.request.url);
     stats.incrementBlocked('network', new URL(info.request.url).hostname);
+    youtubeDiagnostics.recordRuleMatch(info);
   });
 }
 

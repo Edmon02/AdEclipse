@@ -1,210 +1,283 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AdEclipse</title>
-  <link rel="stylesheet" href="popup.css">
-</head>
-<body>
-  <div class="popup-container" id="app">
-    <!-- Header -->
-    <header class="header">
-      <div class="logo-section">
-        <div class="logo">
-          <svg viewBox="0 0 32 32" class="logo-icon">
-            <circle cx="16" cy="16" r="14" fill="url(#gradient)" />
-            <path d="M10 16L14 20L22 12" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-            <defs>
-              <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" style="stop-color:#10B981"/>
-                <stop offset="100%" style="stop-color:#059669"/>
-              </linearGradient>
-            </defs>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AdEclipse</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <div class="popup-container" id="app">
+      <!-- Header -->
+      <header class="header">
+        <div class="logo-section">
+          <div class="logo">
+            <svg viewBox="0 0 32 32" class="logo-icon">
+              <circle cx="16" cy="16" r="14" fill="url(#gradient)" />
+              <path
+                d="M10 16L14 20L22 12"
+                stroke="white"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                fill="none"
+              />
+              <defs>
+                <linearGradient
+                  id="gradient"
+                  x1="0%"
+                  y1="0%"
+                  x2="100%"
+                  y2="100%"
+                >
+                  <stop offset="0%" style="stop-color: #10b981" />
+                  <stop offset="100%" style="stop-color: #059669" />
+                </linearGradient>
+              </defs>
+            </svg>
+            <span class="logo-text">AdEclipse</span>
+          </div>
+          <button class="settings-btn" id="settingsBtn" title="Settings">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <circle cx="12" cy="12" r="3" />
+              <path
+                d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"
+              />
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- Main Toggle -->
+      <section class="main-toggle">
+        <div class="toggle-row">
+          <div class="toggle-info">
+            <span class="toggle-label">Protection</span>
+            <span class="toggle-status" id="statusText">Active</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="mainToggle" checked />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="site-info" id="siteInfo">
+          <span class="site-icon">🌐</span>
+          <span class="site-name" id="siteName">Loading...</span>
+          <button
+            class="site-toggle"
+            id="siteToggle"
+            title="Toggle for this site"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path d="M9 12l2 2 4-4" />
+              <circle cx="12" cy="12" r="10" />
+            </svg>
+          </button>
+        </div>
+      </section>
+
+      <!-- Stats -->
+      <section class="stats-section">
+        <h3 class="section-title">Today's Stats</h3>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon blocked-icon">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <path d="M4.93 4.93l14.14 14.14" />
+              </svg>
+            </div>
+            <div class="stat-content">
+              <span class="stat-value" id="adsBlocked">0</span>
+              <span class="stat-label">Ads Blocked</span>
+            </div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-icon time-icon">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <path d="M12 6v6l4 2" />
+              </svg>
+            </div>
+            <div class="stat-content">
+              <span class="stat-value" id="timeSaved">0s</span>
+              <span class="stat-label">Time Saved</span>
+            </div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-icon data-icon">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+            </div>
+            <div class="stat-content">
+              <span class="stat-value" id="dataSaved">0 KB</span>
+              <span class="stat-label">Data Saved</span>
+            </div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-icon skip-icon">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <polygon points="5 4 15 12 5 20 5 4" />
+                <line x1="19" y1="5" x2="19" y2="19" />
+              </svg>
+            </div>
+            <div class="stat-content">
+              <span class="stat-value" id="adsSkipped">0</span>
+              <span class="stat-label">Ads Skipped</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Quick Settings -->
+      <section class="quick-settings">
+        <h3 class="section-title">Blocking Mode</h3>
+        <div class="mode-selector">
+          <button class="mode-btn" data-mode="light" title="Block minimal ads">
+            <span class="mode-icon">🛡️</span>
+            <span class="mode-name">Light</span>
+          </button>
+          <button
+            class="mode-btn active"
+            data-mode="balanced"
+            title="Recommended"
+          >
+            <span class="mode-icon">⚖️</span>
+            <span class="mode-name">Balanced</span>
+          </button>
+          <button
+            class="mode-btn"
+            data-mode="aggressive"
+            title="Block everything"
+          >
+            <span class="mode-icon">🔥</span>
+            <span class="mode-name">Aggressive</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Block Types -->
+      <section class="block-types">
+        <h3 class="section-title">Block Types</h3>
+        <div class="toggle-list">
+          <label class="toggle-item">
+            <span class="toggle-item-label">Video Ads</span>
+            <input type="checkbox" id="blockVideo" checked />
+            <span class="toggle-small"></span>
+          </label>
+          <label class="toggle-item">
+            <span class="toggle-item-label">Banner Ads</span>
+            <input type="checkbox" id="blockBanner" checked />
+            <span class="toggle-small"></span>
+          </label>
+          <label class="toggle-item">
+            <span class="toggle-item-label">Sponsored Content</span>
+            <input type="checkbox" id="blockSponsored" checked />
+            <span class="toggle-small"></span>
+          </label>
+          <label class="toggle-item">
+            <span class="toggle-item-label">Popups & Overlays</span>
+            <input type="checkbox" id="blockPopups" checked />
+            <span class="toggle-small"></span>
+          </label>
+          <label class="toggle-item">
+            <span class="toggle-item-label">Trackers</span>
+            <input type="checkbox" id="blockTrackers" checked />
+            <span class="toggle-small"></span>
+          </label>
+          <label class="toggle-item">
+            <span class="toggle-item-label">Cookie Banners</span>
+            <input type="checkbox" id="blockCookies" />
+            <span class="toggle-small"></span>
+          </label>
+        </div>
+      </section>
+
+      <!-- Footer -->
+      <footer class="footer">
+        <button class="footer-btn" id="viewStatsBtn">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path d="M18 20V10M12 20V4M6 20v-6" />
           </svg>
-          <span class="logo-text">AdEclipse</span>
-        </div>
-        <button class="settings-btn" id="settingsBtn" title="Settings">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="3"/>
-            <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+          <span>Full Stats</span>
+        </button>
+        <button class="footer-btn" id="reportBtn">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path
+              d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"
+            />
+            <line x1="4" y1="22" x2="4" y2="15" />
           </svg>
+          <span>Report Issue</span>
         </button>
-      </div>
-    </header>
+      </footer>
+    </div>
 
-    <!-- Main Toggle -->
-    <section class="main-toggle">
-      <div class="toggle-row">
-        <div class="toggle-info">
-          <span class="toggle-label">Protection</span>
-          <span class="toggle-status" id="statusText">Active</span>
+    <!-- Report Modal -->
+    <div class="modal" id="reportModal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Report Missed Ad</h3>
+          <button class="modal-close" id="closeReportModal">&times;</button>
         </div>
-        <label class="switch">
-          <input type="checkbox" id="mainToggle" checked>
-          <span class="slider"></span>
-        </label>
-      </div>
-      
-      <div class="site-info" id="siteInfo">
-        <span class="site-icon">🌐</span>
-        <span class="site-name" id="siteName">Loading...</span>
-        <button class="site-toggle" id="siteToggle" title="Toggle for this site">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M9 12l2 2 4-4"/>
-            <circle cx="12" cy="12" r="10"/>
-          </svg>
-        </button>
-      </div>
-    </section>
-
-    <!-- Stats -->
-    <section class="stats-section">
-      <h3 class="section-title">Today's Stats</h3>
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-icon blocked-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="10"/>
-              <path d="M4.93 4.93l14.14 14.14"/>
-            </svg>
-          </div>
-          <div class="stat-content">
-            <span class="stat-value" id="adsBlocked">0</span>
-            <span class="stat-label">Ads Blocked</span>
-          </div>
+        <div class="modal-body">
+          <textarea
+            id="reportDescription"
+            placeholder="Describe the ad you're seeing..."
+            rows="4"
+          ></textarea>
+          <button class="btn-primary" id="submitReport">Submit Report</button>
         </div>
-        
-        <div class="stat-card">
-          <div class="stat-icon time-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="10"/>
-              <path d="M12 6v6l4 2"/>
-            </svg>
-          </div>
-          <div class="stat-content">
-            <span class="stat-value" id="timeSaved">0s</span>
-            <span class="stat-label">Time Saved</span>
-          </div>
-        </div>
-        
-        <div class="stat-card">
-          <div class="stat-icon data-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-              <polyline points="7 10 12 15 17 10"/>
-              <line x1="12" y1="15" x2="12" y2="3"/>
-            </svg>
-          </div>
-          <div class="stat-content">
-            <span class="stat-value" id="dataSaved">0 KB</span>
-            <span class="stat-label">Data Saved</span>
-          </div>
-        </div>
-        
-        <div class="stat-card">
-          <div class="stat-icon skip-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polygon points="5 4 15 12 5 20 5 4"/>
-              <line x1="19" y1="5" x2="19" y2="19"/>
-            </svg>
-          </div>
-          <div class="stat-content">
-            <span class="stat-value" id="adsSkipped">0</span>
-            <span class="stat-label">Ads Skipped</span>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Quick Settings -->
-    <section class="quick-settings">
-      <h3 class="section-title">Blocking Mode</h3>
-      <div class="mode-selector">
-        <button class="mode-btn" data-mode="light" title="Block minimal ads">
-          <span class="mode-icon">🛡️</span>
-          <span class="mode-name">Light</span>
-        </button>
-        <button class="mode-btn active" data-mode="balanced" title="Recommended">
-          <span class="mode-icon">⚖️</span>
-          <span class="mode-name">Balanced</span>
-        </button>
-        <button class="mode-btn" data-mode="aggressive" title="Block everything">
-          <span class="mode-icon">🔥</span>
-          <span class="mode-name">Aggressive</span>
-        </button>
-      </div>
-    </section>
-
-    <!-- Block Types -->
-    <section class="block-types">
-      <h3 class="section-title">Block Types</h3>
-      <div class="toggle-list">
-        <label class="toggle-item">
-          <span class="toggle-item-label">Video Ads</span>
-          <input type="checkbox" id="blockVideo" checked>
-          <span class="toggle-small"></span>
-        </label>
-        <label class="toggle-item">
-          <span class="toggle-item-label">Banner Ads</span>
-          <input type="checkbox" id="blockBanner" checked>
-          <span class="toggle-small"></span>
-        </label>
-        <label class="toggle-item">
-          <span class="toggle-item-label">Sponsored Content</span>
-          <input type="checkbox" id="blockSponsored" checked>
-          <span class="toggle-small"></span>
-        </label>
-        <label class="toggle-item">
-          <span class="toggle-item-label">Popups & Overlays</span>
-          <input type="checkbox" id="blockPopups" checked>
-          <span class="toggle-small"></span>
-        </label>
-        <label class="toggle-item">
-          <span class="toggle-item-label">Trackers</span>
-          <input type="checkbox" id="blockTrackers" checked>
-          <span class="toggle-small"></span>
-        </label>
-        <label class="toggle-item">
-          <span class="toggle-item-label">Cookie Banners</span>
-          <input type="checkbox" id="blockCookies">
-          <span class="toggle-small"></span>
-        </label>
-      </div>
-    </section>
-
-    <!-- Footer -->
-    <footer class="footer">
-      <button class="footer-btn" id="viewStatsBtn">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M18 20V10M12 20V4M6 20v-6"/>
-        </svg>
-        <span>Full Stats</span>
-      </button>
-      <button class="footer-btn" id="reportBtn">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/>
-          <line x1="4" y1="22" x2="4" y2="15"/>
-        </svg>
-        <span>Report Issue</span>
-      </button>
-    </footer>
-  </div>
-
-  <!-- Report Modal -->
-  <div class="modal" id="reportModal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3>Report Missed Ad</h3>
-        <button class="modal-close" id="closeReportModal">&times;</button>
-      </div>
-      <div class="modal-body">
-        <textarea id="reportDescription" placeholder="Describe the ad you're seeing..." rows="4"></textarea>
-        <button class="btn-primary" id="submitReport">Submit Report</button>
       </div>
     </div>
-  </div>
 
-  <script src="popup.js"></script>
-</body>
+    <script src="popup.js"></script>
+  </body>
 </html>

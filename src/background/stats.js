@@ -37,7 +37,7 @@ export class StatsTracker {
     this.pendingUpdates = [];
     this.syncInterval = null;
   }
-  
+
   /**
    * Get all-time stats
    */
@@ -46,7 +46,7 @@ export class StatsTracker {
       const result = await chrome.storage.local.get([STATS_KEY, DAILY_STATS_KEY]);
       const allTime = result[STATS_KEY] || this.getDefaultStats();
       const daily = result[DAILY_STATS_KEY] || {};
-      
+
       return {
         allTime,
         daily,
@@ -63,7 +63,7 @@ export class StatsTracker {
       };
     }
   }
-  
+
   /**
    * Get default stats structure
    */
@@ -84,7 +84,7 @@ export class StatsTracker {
       topDomains: {}
     };
   }
-  
+
   /**
    * Get default day stats
    */
@@ -97,14 +97,14 @@ export class StatsTracker {
       dataSaved: 0
     };
   }
-  
+
   /**
    * Get today's date key
    */
   getTodayKey() {
     return new Date().toISOString().split('T')[0];
   }
-  
+
   /**
    * Get today's stats
    */
@@ -113,14 +113,14 @@ export class StatsTracker {
       const result = await chrome.storage.local.get(DAILY_STATS_KEY);
       const daily = result[DAILY_STATS_KEY] || {};
       const todayKey = this.getTodayKey();
-      
+
       return daily[todayKey] || this.getDefaultDayStats();
     } catch (error) {
       console.error('[StatsTracker] Error getting today stats:', error);
       return this.getDefaultDayStats();
     }
   }
-  
+
   /**
    * Increment blocked count
    */
@@ -128,11 +128,11 @@ export class StatsTracker {
     try {
       // Update session
       this.sessionStats.adsBlocked++;
-      
+
       // Calculate estimated data saved
       const dataSaved = AD_SIZES[type] || AD_SIZES.network;
       this.sessionStats.dataSaved += dataSaved;
-      
+
       // Queue persistent update
       this.pendingUpdates.push({
         type: 'blocked',
@@ -140,14 +140,14 @@ export class StatsTracker {
         domain,
         dataSaved
       });
-      
+
       // Debounced sync
       this.scheduleSync();
     } catch (error) {
       console.error('[StatsTracker] Error incrementing blocked:', error);
     }
   }
-  
+
   /**
    * Record ad skip
    */
@@ -156,19 +156,19 @@ export class StatsTracker {
       // Update session
       this.sessionStats.adsSkipped++;
       this.sessionStats.timeSaved += duration;
-      
+
       // Queue persistent update
       this.pendingUpdates.push({
         type: 'skipped',
         duration
       });
-      
+
       this.scheduleSync();
     } catch (error) {
       console.error('[StatsTracker] Error recording skip:', error);
     }
   }
-  
+
   /**
    * Schedule debounced sync
    */
@@ -176,63 +176,63 @@ export class StatsTracker {
     if (this.syncInterval) {
       clearTimeout(this.syncInterval);
     }
-    
+
     this.syncInterval = setTimeout(() => {
       this.sync();
     }, 1000); // Sync after 1 second of inactivity
   }
-  
+
   /**
    * Sync pending updates to storage
    */
   async sync() {
     if (this.pendingUpdates.length === 0) return;
-    
+
     try {
       const updates = [...this.pendingUpdates];
       this.pendingUpdates = [];
-      
+
       const result = await chrome.storage.local.get([STATS_KEY, DAILY_STATS_KEY]);
       const allTime = result[STATS_KEY] || this.getDefaultStats();
       const daily = result[DAILY_STATS_KEY] || {};
       const todayKey = this.getTodayKey();
-      
+
       if (!daily[todayKey]) {
         daily[todayKey] = this.getDefaultDayStats();
       }
-      
+
       for (const update of updates) {
         if (update.type === 'blocked') {
           allTime.adsBlocked++;
           allTime.dataSaved += update.dataSaved;
           allTime.byType[update.adType] = (allTime.byType[update.adType] || 0) + 1;
-          
+
           if (update.domain) {
             allTime.topDomains[update.domain] = (allTime.topDomains[update.domain] || 0) + 1;
           }
-          
+
           daily[todayKey].adsBlocked++;
           daily[todayKey].dataSaved += update.dataSaved;
         } else if (update.type === 'skipped') {
           allTime.adsSkipped++;
           allTime.timeSaved += update.duration;
-          
+
           daily[todayKey].adsSkipped++;
           daily[todayKey].timeSaved += update.duration;
         }
       }
-      
+
       // Clean up old daily stats (keep last 30 days)
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       const cutoff = thirtyDaysAgo.toISOString().split('T')[0];
-      
+
       for (const key of Object.keys(daily)) {
         if (key < cutoff) {
           delete daily[key];
         }
       }
-      
+
       await chrome.storage.local.set({
         [STATS_KEY]: allTime,
         [DAILY_STATS_KEY]: daily
@@ -241,7 +241,7 @@ export class StatsTracker {
       console.error('[StatsTracker] Sync error:', error);
     }
   }
-  
+
   /**
    * Reset all stats
    */
@@ -253,7 +253,7 @@ export class StatsTracker {
         timeSaved: 0,
         dataSaved: 0
       };
-      
+
       await chrome.storage.local.set({
         [STATS_KEY]: this.getDefaultStats(),
         [DAILY_STATS_KEY]: {}
@@ -263,7 +263,7 @@ export class StatsTracker {
       throw error;
     }
   }
-  
+
   /**
    * Format time for display
    */
@@ -278,7 +278,7 @@ export class StatsTracker {
       return `${hours}h ${mins}m`;
     }
   }
-  
+
   /**
    * Format data size for display
    */

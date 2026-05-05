@@ -28,6 +28,10 @@
   if (window.__ADECLIPSE_YT_LOADED__) return;
   window.__ADECLIPSE_YT_LOADED__ = true;
 
+  var ytUtils = window.__ADECLIPSE_YT_UTILS__ || {};
+  var DIAGNOSTIC_MESSAGE_TYPE = 'ADECLIPSE_YOUTUBE_DIAGNOSTIC';
+  var recentDiagnostics = Object.create(null);
+
   /* ── Enabled gate ──────────────────────────────────────────── */
   /* Ask the background whether the extension is enabled for this  *
    * site.  If disabled (global OFF or site-whitelisted) we bail   *
@@ -92,6 +96,21 @@
     '#player-overlay\\:0,' +
     '#player-overlay-layout\\:0';
 
+  var PLAYER_PROMO_SURFACE_SEL =
+    '.ytp-ad-player-overlay,' +
+    '.ytp-ad-player-overlay-layout,' +
+    '.ytp-ad-player-overlay-instream-info,' +
+    '.ytp-ad-player-overlay-skip-or-preview,' +
+    '.ytp-ad-action-interstitial-slot,' +
+    '.ytp-ad-action-interstitial-background-container,' +
+    '.ytp-ad-message-container,' +
+    '.ytp-ad-button,' +
+    '.ytp-ad-button-icon,' +
+    '.ytp-visit-advertiser-link,' +
+    '.ytp-ad-visit-advertiser-button,' +
+    '.ytp-paid-content-overlay,' +
+    '#player-ads';
+
   var STATIC_AD_SEL =
     '#masthead-ad,' +
     'ytd-display-ad-renderer,' +
@@ -103,7 +122,11 @@
     'ytd-banner-promo-renderer,' +
     'ytd-video-masthead-ad-v3-renderer,' +
     'ytd-primetime-promo-renderer,' +
+    'ytd-promoted-video-renderer,' +
     'ytd-player-legacy-desktop-watch-ads-renderer,' +
+    '.ytd-player-legacy-desktop-watch-ads-renderer,' +
+    '.ytd-action-companion-ad-renderer,' +
+    '.ytd-companion-slot-renderer,' +
     'ytd-rich-item-renderer:has(ytd-ad-slot-renderer),' +
     'ytd-rich-section-renderer:has(ytd-ad-slot-renderer)';
 
@@ -128,6 +151,8 @@
   var adSeekedToEnd = false;
   var adEndTimestamp = 0;
   var wasInAdMode   = false;
+  var realVideoStartTime = 0;  // Track where the real video started
+  var postAdRecoveryToken = 0;
 
   /* ── Authoritative ad check ──────────────────────────────────── */
 
@@ -136,6 +161,116 @@
       player.classList.contains('ad-showing') ||
       player.classList.contains('ad-interrupting')
     );
+  }
+
+  function playerHasPromotedSurface(player) {
+    if (!player) return false;
+
+    return Array.prototype.some.call(
+      player.querySelectorAll(SKIP_BTN_SEL + ',' + PLAYER_PROMO_SURFACE_SEL),
+      function (node) {
+        return isActionablePromoNode(node);
+      }
+    );
+  }
+
+  function playerNeedsIntervention(player) {
+    return playerInAdMode(player) || playerHasPromotedSurface(player);
+  }
+
+  function isActionablePromoNode(node) {
+    if (!node || !node.isConnected) return false;
+    if (node.hidden) return false;
+
+    var ariaHidden = node.getAttribute && node.getAttribute('aria-hidden');
+    if (ariaHidden === 'true') return false;
+
+    var style = node.style;
+    if (!style) return true;
+
+    if (style.display === 'none') return false;
+    if (style.visibility === 'hidden') return false;
+    if (style.pointerEvents === 'none') return false;
+
+    return true;
+  }
+
+  function getPageType() {
+    var path = window.location.pathname || '';
+
+    if (path.indexOf('/watch') === 0) return 'watch';
+    if (path.indexOf('/shorts') === 0) return 'shorts';
+    if (path.indexOf('/results') === 0) return 'search';
+    if (path.indexOf('/feed') === 0) return 'feed';
+    return 'browse';
+  }
+
+  function summarizeElement(el) {
+    if (!el || !el.tagName) return null;
+
+    return {
+      tag: el.tagName.toLowerCase(),
+      id: el.id || '',
+      classes: Array.prototype.slice.call(el.classList || [], 0, 6)
+    };
+  }
+
+  function reportDiagnostic(type, payload) {
+    try {
+      var details = payload && payload.details ? payload.details : {};
+      var signal = payload && payload.signal ? payload.signal : '';
+      var key = [type, signal, JSON.stringify(details).slice(0, 120)].join('|');
+      var now = Date.now();
+
+      if (recentDiagnostics[key] && now - recentDiagnostics[key] < 15000) {
+        return;
+      }
+
+      recentDiagnostics[key] = now;
+
+      chrome.runtime.sendMessage({
+        type: 'YOUTUBE_DIAGNOSTIC_EVENT',
+        data: {
+          source: payload && payload.source ? payload.source : 'youtube-isolated',
+          type: type,
+          signal: signal,
+          pageType: getPageType(),
+          url: window.location.href,
+          details: details,
+          request: payload && payload.request ? payload.request : null
+        }
+      }, function () {
+        void chrome.runtime.lastError;
+      });
+    } catch (_) {}
+  }
+
+  function attachMainWorldDiagnosticsBridge() {
+    window.addEventListener('message', function (event) {
+      if (event.source !== window || !event.data || event.data.type !== DIAGNOSTIC_MESSAGE_TYPE) {
+        return;
+      }
+
+      reportDiagnostic(event.data.payload.type || 'mainworld-event', {
+        source: event.data.payload.source || 'youtube-mainworld',
+        signal: event.data.payload.signal || '',
+        details: event.data.payload.details || {}
+      });
+    }, true);
+  }
+
+  function reportPromotedPlayerSurface(player) {
+    var promoSurface = player.querySelector(PLAYER_PROMO_SURFACE_SEL);
+    var skipButton = player.querySelector(SKIP_BTN_SEL);
+
+    reportDiagnostic('player-surface', {
+      signal: 'promoted-player-surface',
+      details: {
+        hasSkipButton: Boolean(skipButton),
+        surface: summarizeElement(promoSurface || skipButton),
+        playerClasses: Array.prototype.slice.call(player.classList || [], 0, 10)
+      }
+    });
   }
 
   /* ── URL timestamp helper ──────────────────────────────────── */
@@ -158,6 +293,100 @@
     return 0;
   }
 
+  function getResumeTargetTime(player, video) {
+    var candidates = [];
+
+    if (video && Number.isFinite(video.currentTime)) {
+      candidates.push(video.currentTime);
+    }
+
+    if (player && typeof player.getCurrentTime === 'function') {
+      try {
+        candidates.push(player.getCurrentTime());
+      } catch (_) {}
+    }
+
+    candidates.push(getUrlStartTime());
+
+    if (typeof ytUtils.getResumeTargetTime === 'function') {
+      return ytUtils.getResumeTargetTime(candidates);
+    }
+
+    return candidates.reduce(function (best, candidate) {
+      return Number.isFinite(candidate) && candidate > best ? candidate : best;
+    }, 0);
+  }
+
+  function clampPlaybackTarget(targetTime, duration) {
+    if (typeof ytUtils.clampPlaybackTarget === 'function') {
+      return ytUtils.clampPlaybackTarget(targetTime, duration);
+    }
+
+    if (!Number.isFinite(targetTime) || targetTime < 0) return 0;
+    if (Number.isFinite(duration) && duration > 1) {
+      return Math.min(targetTime, Math.max(duration - 0.25, 0));
+    }
+    return targetTime;
+  }
+
+  function shouldRestorePlaybackPosition(targetTime, currentTime, duration) {
+    if (typeof ytUtils.shouldRestorePlaybackPosition === 'function') {
+      return ytUtils.shouldRestorePlaybackPosition(targetTime, currentTime, duration);
+    }
+
+    if (!Number.isFinite(currentTime) || currentTime < 0) return false;
+    var safeTarget = clampPlaybackTarget(targetTime, duration);
+    if (safeTarget < 1) return false;
+    if (Math.abs(currentTime - safeTarget) <= 1.5) return false;
+    return currentTime <= Math.min(3, safeTarget * 0.25) || currentTime > safeTarget + 15;
+  }
+
+  function ensurePlayback(player, video) {
+    if (!video || playerInAdMode(player)) return;
+    if (!video.paused || video.readyState < 2) return;
+
+    try {
+      var playPromise = video.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(function () {
+          var playBtn = player.querySelector('.ytp-play-button, button[aria-label="Play"]');
+          if (playBtn) {
+            try { playBtn.click(); } catch (_) {}
+          }
+        });
+      }
+    } catch (_) {}
+  }
+
+  function queuePostAdRecovery(player, video) {
+    var recoveryToken = ++postAdRecoveryToken;
+    var restoreTargetTime = getResumeTargetTime(player, video);
+    var attemptDelays = [0, 120, 350, 800, 1400];
+
+    attemptDelays.forEach(function (delay, index) {
+      setTimeout(function () {
+        if (postAdRecoveryToken !== recoveryToken) return;
+        if (!video || playerInAdMode(player)) return;
+
+        if (video.playbackRate !== 1) {
+          video.playbackRate = 1;
+        }
+
+        if (shouldRestorePlaybackPosition(restoreTargetTime, video.currentTime, video.duration)) {
+          try {
+            video.currentTime = clampPlaybackTarget(restoreTargetTime, video.duration);
+          } catch (_) {}
+        }
+
+        ensurePlayback(player, video);
+
+        if (index === attemptDelays.length - 1) {
+          wasInAdMode = false;
+        }
+      }, delay);
+    });
+  }
+
   /* ── Micro-actions ───────────────────────────────────────────── */
 
   function clickSkipButtons() {
@@ -169,6 +398,28 @@
   function hideAdOverlays() {
     document.querySelectorAll(AD_OVERLAY_SEL).forEach(function (el) {
       el.style.setProperty('display', 'none', 'important');
+    });
+  }
+
+  function hidePlayerPromoSurfaces(player) {
+    if (!player) return;
+
+    player.querySelectorAll(PLAYER_PROMO_SURFACE_SEL).forEach(function (el) {
+      try {
+        el.style.setProperty('display', 'none', 'important');
+        el.style.setProperty('visibility', 'hidden', 'important');
+        el.style.setProperty('pointer-events', 'none', 'important');
+        el.setAttribute('aria-hidden', 'true');
+      } catch (_) {}
+    });
+
+    player.querySelectorAll(SKIP_BTN_SEL).forEach(function (el) {
+      try {
+        el.style.setProperty('display', 'none', 'important');
+        el.style.setProperty('visibility', 'hidden', 'important');
+        el.style.setProperty('pointer-events', 'none', 'important');
+        el.setAttribute('aria-hidden', 'true');
+      } catch (_) {}
     });
   }
 
@@ -203,19 +454,34 @@
 
     if (!hasBlockedDialog) return;
 
+    reportDiagnostic('blocked-dialog', {
+      signal: 'youtube-enforcement-or-premium',
+      details: {
+        pageType: getPageType()
+      }
+    });
+
+    // Aggressively remove all modal backdrops
     document.querySelectorAll(MODAL_BACKDROP_SEL).forEach(function (el) {
       try { el.removeAttribute('opened'); } catch (_) {}
       try { el.classList.remove('opened'); } catch (_) {}
       try { el.style.setProperty('display', 'none', 'important'); } catch (_) {}
       try { el.style.setProperty('pointer-events', 'none', 'important'); } catch (_) {}
+      try { el.style.setProperty('visibility', 'hidden', 'important'); } catch (_) {}
+      try { el.style.setProperty('opacity', '0', 'important'); } catch (_) {}
       try { el.remove(); } catch (_) {}
     });
 
+    // Unlock scrolling on html and body - use multiple approaches
     if (document.body) {
-      try { document.body.style.removeProperty('overflow'); } catch (_) {}
-      try { document.body.style.removeProperty('pointer-events'); } catch (_) {}
+      try { document.body.style.setProperty('overflow', 'visible', 'important'); } catch (_) {}
+      try { document.body.style.setProperty('pointer-events', 'auto', 'important'); } catch (_) {}
+      try { document.body.style.setProperty('max-height', 'none', 'important'); } catch (_) {}
+      try { document.body.style.setProperty('max-width', 'none', 'important'); } catch (_) {}
     }
-    try { document.documentElement.style.removeProperty('overflow'); } catch (_) {}
+    try { document.documentElement.style.setProperty('overflow', 'auto', 'important'); } catch (_) {}
+    try { document.documentElement.style.setProperty('pointer-events', 'auto', 'important'); } catch (_) {}
+    try { document.documentElement.style.setProperty('max-height', 'none', 'important'); } catch (_) {}
   }
 
   /* ── Core: nuke one frame of ad ──────────────────────────────── */
@@ -249,6 +515,20 @@
 
     // 4. Hide leftover overlay elements
     hideAdOverlays();
+    hidePlayerPromoSurfaces(player);
+    purgeBlockedYoutubePopups();
+  }
+
+  function suppressPromotedPlayerSurface(player) {
+    var video = player.querySelector('video');
+    if (video) {
+      video.muted = true;
+    }
+
+    clickSkipButtons();
+    hideAdOverlays();
+    hidePlayerPromoSurfaces(player);
+    purgeStaticAds();
     purgeBlockedYoutubePopups();
   }
 
@@ -258,11 +538,17 @@
     if (adLoopId !== null || adIntervalId !== null) return;
 
     var step = function () {
-      if (!playerInAdMode(player)) {
+      if (!playerNeedsIntervention(player)) {
         endAdLoop(player);
         return;
       }
-      nukeAdFrame(player);
+
+      if (playerInAdMode(player)) {
+        nukeAdFrame(player);
+        return;
+      }
+
+      suppressPromotedPlayerSurface(player);
     };
 
     // setInterval at 16ms for reliable firing even when CSS hides the video
@@ -273,8 +559,14 @@
 
     // Also keep rAF as secondary mechanism for when the tab is active
     var rAfStep = function () {
-      if (!playerInAdMode(player)) return;
-      nukeAdFrame(player);
+      if (!playerNeedsIntervention(player)) return;
+
+      if (playerInAdMode(player)) {
+        nukeAdFrame(player);
+      } else {
+        suppressPromotedPlayerSurface(player);
+      }
+
       adLoopId = requestAnimationFrame(rAfStep);
     };
     adLoopId = requestAnimationFrame(rAfStep);
@@ -298,50 +590,9 @@
       video.muted       = savedMuted;
       video.volume       = savedVolume;
       video.playbackRate = 1;   // safety: ensure normal speed
-
-      // Register one-shot listeners to reset currentTime if the real video
-      // inherited a wrong position from the ad-skip seeks
-      var resetDone = false;
-      var resetIfNeeded = function () {
-        if (resetDone) return;
-
-        // Only act within 5 seconds of ad ending
-        if (Date.now() - adEndTimestamp > 5000) {
-          cleanup();
-          return;
-        }
-
-        // If not in ad mode and currentTime is suspiciously high
-        if (!playerInAdMode(player) && video.currentTime > 2) {
-          var targetTime = getUrlStartTime();
-          video.currentTime = targetTime;
-          resetDone = true;
-          cleanup();
-        }
-      };
-
-      var cleanup = function () {
-        video.removeEventListener('playing', resetIfNeeded, true);
-        video.removeEventListener('loadeddata', resetIfNeeded, true);
-        video.removeEventListener('timeupdate', resetIfNeeded, true);
-        wasInAdMode = false;
-      };
-
-      video.addEventListener('playing', resetIfNeeded, true);
-      video.addEventListener('loadeddata', resetIfNeeded, true);
-      video.addEventListener('timeupdate', resetIfNeeded, true);
-
-      // Autoplay: the ad-skip sequence often leaves the real video paused.
-      // Wait briefly for the real video to load, then trigger play.
-      var ensurePlay = function () {
-        if (playerInAdMode(player)) return;
-        if (video.paused && video.readyState >= 2) {
-          video.play().catch(function () {});
-        }
-      };
-      setTimeout(ensurePlay, 100);
-      setTimeout(ensurePlay, 300);
-      setTimeout(ensurePlay, 800);
+      queuePostAdRecovery(player, video);
+    } else {
+      wasInAdMode = false;
     }
 
     adHandling = false;
@@ -350,16 +601,22 @@
   /* ── State-change dispatcher ─────────────────────────────────── */
 
   function onPlayerStateChange(player) {
-    if (playerInAdMode(player)) {
+    if (playerNeedsIntervention(player)) {
       if (!adHandling) {
         adHandling = true;
         adSeekedToEnd = false;
+
+        if (!playerInAdMode(player) && playerHasPromotedSurface(player)) {
+          reportPromotedPlayerSurface(player);
+        }
 
         // Snapshot audio state BEFORE we mute
         var video = player.querySelector('video');
         if (video) {
           savedMuted  = video.muted;
           savedVolume = video.volume;
+          realVideoStartTime = getResumeTargetTime(player, video);
+          postAdRecoveryToken += 1;
 
           // One-shot listener: seek as soon as duration is known
           var onMeta = function () {
@@ -376,7 +633,12 @@
       }
 
       // Immediate first attempt (don't wait for rAF/interval)
-      nukeAdFrame(player);
+      if (playerInAdMode(player)) {
+        nukeAdFrame(player);
+      } else {
+        suppressPromotedPlayerSurface(player);
+      }
+
       beginAdLoop(player);
     } else if (adHandling) {
       endAdLoop(player);
@@ -403,15 +665,8 @@
         if (video.playbackRate !== 1) {
           video.playbackRate = 1;
         }
-        // Post-ad reset: if we recently exited ad mode and time is wrong
-        if (wasInAdMode && video.currentTime > 2) {
-          var targetTime = getUrlStartTime();
-          video.currentTime = targetTime;
-          wasInAdMode = false;
-        }
-        // Ensure autoplay after ad skip
-        if (video.paused && video.readyState >= 2) {
-          video.play().catch(function () {});
+        if (wasInAdMode || Date.now() - adEndTimestamp < 5000) {
+          ensurePlayback(player, video);
         }
       }
     }, true);
@@ -432,11 +687,24 @@
       return;
     }
 
+    var pending = false;
+    var schedulePlayerCheck = function () {
+      if (pending) return;
+      pending = true;
+      queueMicrotask(function () {
+        pending = false;
+        onPlayerStateChange(player);
+      });
+    };
+
     onPlayerStateChange(player);
 
-    new MutationObserver(function () {
-      onPlayerStateChange(player);
-    }).observe(player, { attributes: true, attributeFilter: ['class'] });
+    new MutationObserver(schedulePlayerCheck).observe(player, {
+      attributes: true,
+      attributeFilter: ['class', 'style', 'hidden', 'aria-hidden'],
+      childList: true,
+      subtree: true
+    });
   }
 
   function attachBodyObserver() {
@@ -473,6 +741,19 @@
     setInterval(function () {
       purgeStaticAds();
       purgeBlockedYoutubePopups();
+
+      // Ensure scrolling is always enabled (prevent YouTube from re-locking it)
+      try {
+        if (document.body && document.body.style.getPropertyValue('overflow') === 'hidden') {
+          document.body.style.setProperty('overflow', 'auto', 'important');
+          document.body.style.setProperty('pointer-events', 'auto', 'important');
+        }
+        if (document.documentElement && document.documentElement.style.getPropertyValue('overflow') === 'hidden') {
+          document.documentElement.style.setProperty('overflow', 'auto', 'important');
+          document.documentElement.style.setProperty('pointer-events', 'auto', 'important');
+        }
+      } catch (_) {}
+
       var player = document.querySelector('#movie_player');
       if (player) onPlayerStateChange(player);
     }, 500);
@@ -494,15 +775,272 @@
       '#movie_player.ad-interrupting .ytp-spinner-container' +
       '{display:none!important}' +
 
+      /* CRITICAL: Force scrolling enabled globally and permanently */
+      'html {' +
+        'overflow:auto!important;' +
+        'overflow-y:scroll!important;' +
+        'height:auto!important;' +
+        'pointer-events:auto!important;' +
+      '}' +
+      'body {' +
+        'overflow:visible!important;' +
+        'overflow-y:scroll!important;' +
+        'height:auto!important;' +
+        'max-height:none!important;' +
+        'pointer-events:auto!important;' +
+        'position:static!important;' +
+      '}' +
+      'ytd-rich-grid-renderer {overflow:visible!important}' +
+
       AD_OVERLAY_SEL + '{display:none!important}';
 
     (document.head || document.documentElement).appendChild(s);
+  }
+
+  /* ── Aggressive scroll position override ────────────────────────────── */
+
+  function installAggressiveScrollUnlocker() {
+    var scrollMonitoringActive = true;
+    var protectedScrollY = 0;
+    var lastObservedScrollY = 0;
+    var userScrollDirection = 0;
+    var userScrollSessionUntil = 0;
+    var isRestoringScroll = false;
+    var originalScrollTo = window.scrollTo ? window.scrollTo.bind(window) : function () {};
+    var originalScroll = window.scroll ? window.scroll.bind(window) : originalScrollTo;
+
+    function getCurrentScrollY() {
+      return window.pageYOffset || document.documentElement.scrollTop || (document.body && document.body.scrollTop) || 0;
+    }
+
+    function getScrollTargetY(argsLike) {
+      if (typeof ytUtils.extractScrollTargetY === 'function') {
+        return ytUtils.extractScrollTargetY(argsLike);
+      }
+      if (!argsLike || argsLike.length === 0) return null;
+      if (argsLike[0] && typeof argsLike[0] === 'object') {
+        return Number.isFinite(argsLike[0].top) ? argsLike[0].top : null;
+      }
+      return Number.isFinite(argsLike[1]) ? argsLike[1] : null;
+    }
+
+    function getScrollDirection(previousY, nextY) {
+      if (typeof ytUtils.getScrollDirectionFromPositions === 'function') {
+        return ytUtils.getScrollDirectionFromPositions(previousY, nextY);
+      }
+      if (nextY > previousY + 2) return 1;
+      if (nextY < previousY - 2) return -1;
+      return 0;
+    }
+
+    function shouldBlockProgrammaticScroll(targetY) {
+      if (typeof ytUtils.shouldBlockProgrammaticScroll === 'function') {
+        return ytUtils.shouldBlockProgrammaticScroll(
+          targetY,
+          protectedScrollY,
+          userScrollDirection,
+          userScrollSessionUntil,
+          Date.now()
+        );
+      }
+
+      if (!Number.isFinite(targetY) || !userScrollDirection || Date.now() > userScrollSessionUntil) {
+        return false;
+      }
+
+      return userScrollDirection > 0 ? targetY < protectedScrollY - 120 : targetY > protectedScrollY + 120;
+    }
+
+    function shouldRecoverScrollPosition(currentY) {
+      if (typeof ytUtils.shouldRecoverScrollPosition === 'function') {
+        return ytUtils.shouldRecoverScrollPosition(
+          currentY,
+          protectedScrollY,
+          userScrollDirection,
+          userScrollSessionUntil,
+          Date.now()
+        );
+      }
+
+      if (!Number.isFinite(currentY) || !userScrollDirection || Date.now() > userScrollSessionUntil) {
+        return false;
+      }
+
+      return userScrollDirection > 0 ? currentY < protectedScrollY - 140 : currentY > protectedScrollY + 140;
+    }
+
+    function markUserScroll(direction) {
+      userScrollSessionUntil = Date.now() + 1500;
+      if (direction) {
+        userScrollDirection = direction;
+      }
+    }
+
+    function trackObservedScroll() {
+      if (isRestoringScroll) return;
+
+      var currentScrollY = getCurrentScrollY();
+      var derivedDirection = getScrollDirection(lastObservedScrollY, currentScrollY);
+
+      if (derivedDirection) {
+        userScrollDirection = derivedDirection;
+      }
+
+      if (Date.now() <= userScrollSessionUntil) {
+        protectedScrollY = currentScrollY;
+      }
+
+      lastObservedScrollY = currentScrollY;
+    }
+
+    protectedScrollY = getCurrentScrollY();
+    lastObservedScrollY = protectedScrollY;
+
+    window.scrollTo = function () {
+      var targetY = getScrollTargetY(arguments);
+      if (!isRestoringScroll && shouldBlockProgrammaticScroll(targetY)) {
+        return;
+      }
+      return originalScrollTo.apply(window, arguments);
+    };
+
+    window.scroll = function () {
+      var targetY = getScrollTargetY(arguments);
+      if (!isRestoringScroll && shouldBlockProgrammaticScroll(targetY)) {
+        return;
+      }
+      return originalScroll.apply(window, arguments);
+    };
+
+    var scrollMonitor = setInterval(function () {
+      if (!scrollMonitoringActive || isRestoringScroll) return;
+
+      try {
+        var currentScrollY = getCurrentScrollY();
+        if (shouldRecoverScrollPosition(currentScrollY)) {
+          isRestoringScroll = true;
+          originalScrollTo(0, protectedScrollY);
+          lastObservedScrollY = protectedScrollY;
+          setTimeout(function () {
+            isRestoringScroll = false;
+          }, 80);
+          return;
+        }
+
+        trackObservedScroll();
+      } catch (_) {}
+    }, 80);
+
+    var onScroll = function () {
+      trackObservedScroll();
+    };
+
+    var onWheel = function (e) {
+      if (Math.abs(e.deltaY) < 1) return;
+      markUserScroll(e.deltaY > 0 ? 1 : -1);
+    };
+
+    var onKeyDown = function (e) {
+      var direction = 0;
+
+      if (e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ' || e.key === 'End') {
+        direction = 1;
+      } else if (e.key === 'ArrowUp' || e.key === 'PageUp' || e.key === 'Home') {
+        direction = -1;
+      }
+
+      if (direction) {
+        markUserScroll(direction);
+      }
+    };
+
+    var onPointerDown = function () {
+      markUserScroll(0);
+    };
+
+    document.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    window.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    document.addEventListener('wheel', onWheel, { capture: true, passive: true });
+    window.addEventListener('wheel', onWheel, { capture: true, passive: true });
+    document.addEventListener('keydown', onKeyDown, true);
+    document.addEventListener('mousedown', onPointerDown, true);
+    document.addEventListener('touchstart', onPointerDown, { capture: true, passive: true });
+    document.addEventListener('touchmove', onPointerDown, { capture: true, passive: true });
+
+    // 5. Prevent scroll-related CSS from locking
+    var styleMonitor = setInterval(function () {
+      try {
+        ['html', 'body'].forEach(function (selector) {
+          var el = selector === 'html' ? document.documentElement : document.body;
+          if (!el) return;
+
+          // Remove height locks
+          if (el.style.height === '100%' || el.style.height === '100vh') {
+            el.style.setProperty('height', 'auto', 'important');
+          }
+          if (el.style.maxHeight && el.style.maxHeight !== 'none') {
+            el.style.setProperty('max-height', 'none', 'important');
+          }
+
+          // Remove overflow locks
+          if (el.style.overflow === 'hidden') {
+            el.style.setProperty('overflow', selector === 'html' ? 'auto' : 'visible', 'important');
+          }
+
+          // Restore pointer events
+          if (el.style.pointerEvents === 'none') {
+            el.style.setProperty('pointer-events', 'auto', 'important');
+          }
+        });
+      } catch (_) {}
+    }, 200);
+
+    // 6. Force enable scrolling at CSS level permanently
+    var styleSheet = document.createElement('style');
+    styleSheet.id = 'adeclipse-scroll-override';
+    styleSheet.textContent =
+      'html { overflow-y: auto !important; width: 100% !important; height: auto !important; }' +
+      'body { overflow: visible !important; overflow-y: auto !important; width: 100% !important; height: auto !important; position: static !important; }' +
+      /* Block any element trying to prevent scrolling */
+      '[style*="overflow"][style*="hidden"] { overflow: visible !important; }' +
+      '[style*="position"][style*="fixed"] > * { position: relative !important; }';
+
+    (document.head || document.documentElement).appendChild(styleSheet);
+
+    // 7. Monitor modal backdrops in real-time and kill them
+    var backdropKiller = setInterval(function () {
+      try {
+        document.querySelectorAll('tp-yt-iron-overlay-backdrop').forEach(function (backdrop) {
+          if (backdrop.style.display !== 'none') {
+            backdrop.style.setProperty('display', 'none', 'important');
+            backdrop.style.setProperty('pointer-events', 'none', 'important');
+            backdrop.style.setProperty('visibility', 'hidden', 'important');
+          }
+        });
+      } catch (_) {}
+    }, 150);
+
+    // Cleanup function if needed
+    return function cleanup() {
+      scrollMonitoringActive = false;
+      clearInterval(scrollMonitor);
+      clearInterval(styleMonitor);
+      clearInterval(backdropKiller);
+      document.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('scroll', onScroll, true);
+      document.removeEventListener('wheel', onWheel, true);
+      window.removeEventListener('wheel', onWheel, true);
+      document.removeEventListener('keydown', onKeyDown, true);
+      document.removeEventListener('mousedown', onPointerDown, true);
+    };
   }
 
   /* ── Bootstrap ───────────────────────────────────────────────── */
 
   function bootstrapAdBlocker() {
     injectEarlyStyle();
+    attachMainWorldDiagnosticsBridge();
+    installAggressiveScrollUnlocker();
     purgeStaticAds();
     purgeBlockedYoutubePopups();
     attachPlayerObserver();
