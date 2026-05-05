@@ -29,6 +29,8 @@
   window.__ADECLIPSE_YT_LOADED__ = true;
 
   var ytUtils = window.__ADECLIPSE_YT_UTILS__ || {};
+  var DIAGNOSTIC_MESSAGE_TYPE = 'ADECLIPSE_YOUTUBE_DIAGNOSTIC';
+  var recentDiagnostics = Object.create(null);
 
   /* ── Enabled gate ──────────────────────────────────────────── */
   /* Ask the background whether the extension is enabled for this  *
@@ -94,6 +96,21 @@
     '#player-overlay\\:0,' +
     '#player-overlay-layout\\:0';
 
+  var PLAYER_PROMO_SURFACE_SEL =
+    '.ytp-ad-player-overlay,' +
+    '.ytp-ad-player-overlay-layout,' +
+    '.ytp-ad-player-overlay-instream-info,' +
+    '.ytp-ad-player-overlay-skip-or-preview,' +
+    '.ytp-ad-action-interstitial-slot,' +
+    '.ytp-ad-action-interstitial-background-container,' +
+    '.ytp-ad-message-container,' +
+    '.ytp-ad-button,' +
+    '.ytp-ad-button-icon,' +
+    '.ytp-visit-advertiser-link,' +
+    '.ytp-ad-visit-advertiser-button,' +
+    '.ytp-paid-content-overlay,' +
+    '#player-ads';
+
   var STATIC_AD_SEL =
     '#masthead-ad,' +
     'ytd-display-ad-renderer,' +
@@ -105,7 +122,11 @@
     'ytd-banner-promo-renderer,' +
     'ytd-video-masthead-ad-v3-renderer,' +
     'ytd-primetime-promo-renderer,' +
+    'ytd-promoted-video-renderer,' +
     'ytd-player-legacy-desktop-watch-ads-renderer,' +
+    '.ytd-player-legacy-desktop-watch-ads-renderer,' +
+    '.ytd-action-companion-ad-renderer,' +
+    '.ytd-companion-slot-renderer,' +
     'ytd-rich-item-renderer:has(ytd-ad-slot-renderer),' +
     'ytd-rich-section-renderer:has(ytd-ad-slot-renderer)';
 
@@ -140,6 +161,116 @@
       player.classList.contains('ad-showing') ||
       player.classList.contains('ad-interrupting')
     );
+  }
+
+  function playerHasPromotedSurface(player) {
+    if (!player) return false;
+
+    return Array.prototype.some.call(
+      player.querySelectorAll(SKIP_BTN_SEL + ',' + PLAYER_PROMO_SURFACE_SEL),
+      function (node) {
+        return isActionablePromoNode(node);
+      }
+    );
+  }
+
+  function playerNeedsIntervention(player) {
+    return playerInAdMode(player) || playerHasPromotedSurface(player);
+  }
+
+  function isActionablePromoNode(node) {
+    if (!node || !node.isConnected) return false;
+    if (node.hidden) return false;
+
+    var ariaHidden = node.getAttribute && node.getAttribute('aria-hidden');
+    if (ariaHidden === 'true') return false;
+
+    var style = node.style;
+    if (!style) return true;
+
+    if (style.display === 'none') return false;
+    if (style.visibility === 'hidden') return false;
+    if (style.pointerEvents === 'none') return false;
+
+    return true;
+  }
+
+  function getPageType() {
+    var path = window.location.pathname || '';
+
+    if (path.indexOf('/watch') === 0) return 'watch';
+    if (path.indexOf('/shorts') === 0) return 'shorts';
+    if (path.indexOf('/results') === 0) return 'search';
+    if (path.indexOf('/feed') === 0) return 'feed';
+    return 'browse';
+  }
+
+  function summarizeElement(el) {
+    if (!el || !el.tagName) return null;
+
+    return {
+      tag: el.tagName.toLowerCase(),
+      id: el.id || '',
+      classes: Array.prototype.slice.call(el.classList || [], 0, 6)
+    };
+  }
+
+  function reportDiagnostic(type, payload) {
+    try {
+      var details = payload && payload.details ? payload.details : {};
+      var signal = payload && payload.signal ? payload.signal : '';
+      var key = [type, signal, JSON.stringify(details).slice(0, 120)].join('|');
+      var now = Date.now();
+
+      if (recentDiagnostics[key] && now - recentDiagnostics[key] < 15000) {
+        return;
+      }
+
+      recentDiagnostics[key] = now;
+
+      chrome.runtime.sendMessage({
+        type: 'YOUTUBE_DIAGNOSTIC_EVENT',
+        data: {
+          source: payload && payload.source ? payload.source : 'youtube-isolated',
+          type: type,
+          signal: signal,
+          pageType: getPageType(),
+          url: window.location.href,
+          details: details,
+          request: payload && payload.request ? payload.request : null
+        }
+      }, function () {
+        void chrome.runtime.lastError;
+      });
+    } catch (_) {}
+  }
+
+  function attachMainWorldDiagnosticsBridge() {
+    window.addEventListener('message', function (event) {
+      if (event.source !== window || !event.data || event.data.type !== DIAGNOSTIC_MESSAGE_TYPE) {
+        return;
+      }
+
+      reportDiagnostic(event.data.payload.type || 'mainworld-event', {
+        source: event.data.payload.source || 'youtube-mainworld',
+        signal: event.data.payload.signal || '',
+        details: event.data.payload.details || {}
+      });
+    }, true);
+  }
+
+  function reportPromotedPlayerSurface(player) {
+    var promoSurface = player.querySelector(PLAYER_PROMO_SURFACE_SEL);
+    var skipButton = player.querySelector(SKIP_BTN_SEL);
+
+    reportDiagnostic('player-surface', {
+      signal: 'promoted-player-surface',
+      details: {
+        hasSkipButton: Boolean(skipButton),
+        surface: summarizeElement(promoSurface || skipButton),
+        playerClasses: Array.prototype.slice.call(player.classList || [], 0, 10)
+      }
+    });
   }
 
   /* ── URL timestamp helper ──────────────────────────────────── */
@@ -270,6 +401,28 @@
     });
   }
 
+  function hidePlayerPromoSurfaces(player) {
+    if (!player) return;
+
+    player.querySelectorAll(PLAYER_PROMO_SURFACE_SEL).forEach(function (el) {
+      try {
+        el.style.setProperty('display', 'none', 'important');
+        el.style.setProperty('visibility', 'hidden', 'important');
+        el.style.setProperty('pointer-events', 'none', 'important');
+        el.setAttribute('aria-hidden', 'true');
+      } catch (_) {}
+    });
+
+    player.querySelectorAll(SKIP_BTN_SEL).forEach(function (el) {
+      try {
+        el.style.setProperty('display', 'none', 'important');
+        el.style.setProperty('visibility', 'hidden', 'important');
+        el.style.setProperty('pointer-events', 'none', 'important');
+        el.setAttribute('aria-hidden', 'true');
+      } catch (_) {}
+    });
+  }
+
   function purgeStaticAds() {
     document.querySelectorAll(STATIC_AD_SEL).forEach(function (el) {
       el.remove();
@@ -300,6 +453,13 @@
     });
 
     if (!hasBlockedDialog) return;
+
+    reportDiagnostic('blocked-dialog', {
+      signal: 'youtube-enforcement-or-premium',
+      details: {
+        pageType: getPageType()
+      }
+    });
 
     // Aggressively remove all modal backdrops
     document.querySelectorAll(MODAL_BACKDROP_SEL).forEach(function (el) {
@@ -355,6 +515,20 @@
 
     // 4. Hide leftover overlay elements
     hideAdOverlays();
+    hidePlayerPromoSurfaces(player);
+    purgeBlockedYoutubePopups();
+  }
+
+  function suppressPromotedPlayerSurface(player) {
+    var video = player.querySelector('video');
+    if (video) {
+      video.muted = true;
+    }
+
+    clickSkipButtons();
+    hideAdOverlays();
+    hidePlayerPromoSurfaces(player);
+    purgeStaticAds();
     purgeBlockedYoutubePopups();
   }
 
@@ -364,11 +538,17 @@
     if (adLoopId !== null || adIntervalId !== null) return;
 
     var step = function () {
-      if (!playerInAdMode(player)) {
+      if (!playerNeedsIntervention(player)) {
         endAdLoop(player);
         return;
       }
-      nukeAdFrame(player);
+
+      if (playerInAdMode(player)) {
+        nukeAdFrame(player);
+        return;
+      }
+
+      suppressPromotedPlayerSurface(player);
     };
 
     // setInterval at 16ms for reliable firing even when CSS hides the video
@@ -379,8 +559,14 @@
 
     // Also keep rAF as secondary mechanism for when the tab is active
     var rAfStep = function () {
-      if (!playerInAdMode(player)) return;
-      nukeAdFrame(player);
+      if (!playerNeedsIntervention(player)) return;
+
+      if (playerInAdMode(player)) {
+        nukeAdFrame(player);
+      } else {
+        suppressPromotedPlayerSurface(player);
+      }
+
       adLoopId = requestAnimationFrame(rAfStep);
     };
     adLoopId = requestAnimationFrame(rAfStep);
@@ -415,10 +601,14 @@
   /* ── State-change dispatcher ─────────────────────────────────── */
 
   function onPlayerStateChange(player) {
-    if (playerInAdMode(player)) {
+    if (playerNeedsIntervention(player)) {
       if (!adHandling) {
         adHandling = true;
         adSeekedToEnd = false;
+
+        if (!playerInAdMode(player) && playerHasPromotedSurface(player)) {
+          reportPromotedPlayerSurface(player);
+        }
 
         // Snapshot audio state BEFORE we mute
         var video = player.querySelector('video');
@@ -443,7 +633,12 @@
       }
 
       // Immediate first attempt (don't wait for rAF/interval)
-      nukeAdFrame(player);
+      if (playerInAdMode(player)) {
+        nukeAdFrame(player);
+      } else {
+        suppressPromotedPlayerSurface(player);
+      }
+
       beginAdLoop(player);
     } else if (adHandling) {
       endAdLoop(player);
@@ -492,11 +687,24 @@
       return;
     }
 
+    var pending = false;
+    var schedulePlayerCheck = function () {
+      if (pending) return;
+      pending = true;
+      queueMicrotask(function () {
+        pending = false;
+        onPlayerStateChange(player);
+      });
+    };
+
     onPlayerStateChange(player);
 
-    new MutationObserver(function () {
-      onPlayerStateChange(player);
-    }).observe(player, { attributes: true, attributeFilter: ['class'] });
+    new MutationObserver(schedulePlayerCheck).observe(player, {
+      attributes: true,
+      attributeFilter: ['class', 'style', 'hidden', 'aria-hidden'],
+      childList: true,
+      subtree: true
+    });
   }
 
   function attachBodyObserver() {
@@ -831,6 +1039,7 @@
 
   function bootstrapAdBlocker() {
     injectEarlyStyle();
+    attachMainWorldDiagnosticsBridge();
     installAggressiveScrollUnlocker();
     purgeStaticAds();
     purgeBlockedYoutubePopups();

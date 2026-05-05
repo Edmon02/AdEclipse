@@ -24,6 +24,7 @@
 ### 🎯 Core Functionality
 
 - **YouTube Ad Blocking**: Blocks video ads, overlays, banners, sponsored content, and skippable/non-skippable pre-rolls
+- **YouTube Hardening Pipeline**: Combines document-start injection, main-world payload sanitization, player-surface suppression, and runtime session rules
 - **Universal Blocking**: Works on all websites including news sites, social media, and sites with Google AdSense
 - **500+ Ad Domains**: Comprehensive blocklist covering all major ad networks
 - **DeclarativeNetRequest**: Uses Manifest V3's efficient network blocking API
@@ -49,6 +50,7 @@
 - **No Data Collection**: All processing happens locally
 - **No Telemetry**: No analytics, tracking pixels, or user profiling
 - **Local-First Operation**: Blocking and detection run on-device (optional rule updates can be fetched when auto-update is enabled)
+- **Local Diagnostics Export**: YouTube diagnostics can be exported manually for debugging without sending data to a server
 - **On-Device ML**: Optional TensorFlow.js-based ad detection runs entirely in your browser
 - **Your API Key, Your Control**: AI detection keys are stored locally and never leave your device
 
@@ -57,11 +59,14 @@
 | Feature                | Description                                            |
 | ---------------------- | ------------------------------------------------------ |
 | Video Ad Blocking      | Skips YouTube video ads automatically                  |
+| YouTube Session Rules  | Runtime DNR session rules harden first-party YouTube ad suppression |
+| Payload Sanitization   | MAIN-world sanitization strips ad payloads before UI hydration |
 | Banner Ad Blocking     | Removes banner ads across all sites                    |
 | Popup Blocking         | Prevents popup and overlay ads                         |
 | Anti-Adblock Bypass    | Defeats adblock detection scripts                      |
 | AI Ad Detection        | LLM-powered intelligent ad classification              |
 | Video Pre-roll Bypass  | Intercepts and skips movie/streaming pre-roll ad queues |
+| Diagnostics Export     | Export local YouTube diagnostics snapshots for missed-ad triage |
 | Custom Rules           | Add your own CSS selectors per site                    |
 | Whitelist              | Disable blocking on specific sites                     |
 | Statistics             | Track blocked ads and saved time                       |
@@ -149,11 +154,14 @@ AdEclipse/
 ├── src/
 │   ├── background/
 │   │   ├── background.js   # Service worker
+│   │   ├── youtube-diagnostics.js # Local YouTube diagnostics manager
+│   │   ├── youtube-session-rules.js # Runtime YouTube session rule builder
 │   │   ├── storage.js      # Settings management
 │   │   ├── stats.js        # Statistics tracking
 │   │   └── rules.js        # Dynamic rules
 │   ├── content/
 │   │   ├── youtube.js      # YouTube-specific blocking
+│   │   ├── youtube-mainworld.js # MAIN-world YouTube payload sanitizer
 │   │   ├── youtube.css     # YouTube ad hiding styles
 │   │   ├── general.js      # General site blocking
 │   │   ├── general.css     # General ad hiding styles
@@ -202,6 +210,9 @@ npm run test:watch
 
 # Run specific test file
 npm test -- --testPathPattern=youtube
+
+# Run the YouTube hardening regression slice
+npx jest tests/unit/youtube.test.js tests/unit/youtube-diagnostics.test.js tests/unit/youtube-session-rules.test.js tests/unit/storage.test.js --runInBand
 ```
 
 ### Test Structure
@@ -277,7 +288,9 @@ Create a new content script or add selectors to `rules/site-selectors.json`:
 | Auto-skip            | On      | Automatically skip skippable ads                          |
 | Skip/End Ad Handling | On      | Seeks ad playback to end and triggers skip when available |
 | Mute                 | On      | Mute ads during playback                                  |
+| Document-start inject| On      | Registers YouTube scripts as early as possible before hydration |
 | Overlay Cleanup      | On      | Removes YouTube ad overlays and promoted UI elements      |
+| Diagnostics export   | On in Debug | Captures local YouTube diagnostics snapshots for troubleshooting |
 
 ### AI Detection Settings
 
@@ -294,8 +307,9 @@ Create a new content script or add selectors to `rules/site-selectors.json`:
 
 | Setting           | Default | Description                    |
 | ----------------- | ------- | ------------------------------ |
+| Lazy load         | On      | Defers non-essential scripts   |
+| Cache blocked UI  | On      | Reuses known blocked elements  |
 | Observer debounce | 100ms   | MutationObserver throttling    |
-| Performance mode  | Off     | Reduces observation frequency  |
 | ML detection      | Off     | Enable TensorFlow.js detection |
 
 ---
@@ -357,6 +371,11 @@ const selectors = await chrome.runtime.sendMessage({
   type: "GET_SELECTORS",
   data: { hostname: window.location.hostname },
 });
+
+// Export local YouTube diagnostics
+const diagnostics = await chrome.runtime.sendMessage({
+  type: "EXPORT_YOUTUBE_DIAGNOSTICS",
+});
 ```
 
 ---
@@ -368,7 +387,8 @@ const selectors = await chrome.runtime.sendMessage({
 1. Make sure AdEclipse is enabled (check the popup)
 2. Check if the site is whitelisted
 3. Try switching to "Aggressive" mode
-4. Add custom selectors for the specific ads
+4. Enable Debug Mode and export YouTube diagnostics from Options → Advanced
+5. Add custom selectors for the specific ads
 
 ### Performance Issues?
 
@@ -381,7 +401,8 @@ const selectors = await chrome.runtime.sendMessage({
 1. Check for error messages in the browser console
 2. Try reloading the extension
 3. Clear browser cache and reload the page
-4. Check for conflicts with other extensions
+4. Re-open the Options page to confirm rules loaded successfully
+5. Check for conflicts with other extensions
 
 ---
 

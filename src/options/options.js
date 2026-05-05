@@ -50,6 +50,8 @@ class OptionsPage {
         speedUpAds: true,
         muteAds: true,
         blockOverlays: true,
+        diagnosticsEnabled: true,
+        diagnosticsMaxEntries: 120,
         skipDelay: 500,
         speedMultiplier: 16
       },
@@ -58,8 +60,10 @@ class OptionsPage {
       websiteMode: 'manual',
       customRules: [],
       performance: {
-        observerDebounce: 100,
-        enablePerformanceMode: false
+        lazyLoad: true,
+        cacheEnabled: true,
+        debounceMs: 100,
+        useML: false
       },
       ml: {
         enabled: false
@@ -85,7 +89,7 @@ class OptionsPage {
         autoUpdate: true
       },
       showNotifications: true,
-      debug: false
+      debugMode: false
     };
   }
 
@@ -164,11 +168,12 @@ class OptionsPage {
     this.bindSelect('speedMultiplier', ['youtube', 'speedMultiplier']);
 
     // Advanced Settings
-    this.bindNumber('observerDebounce', ['performance', 'observerDebounce']);
-    this.bindToggle('performanceMode', ['performance', 'enablePerformanceMode']);
-    this.bindToggle('enableML', ['ml', 'enabled']);
+    this.bindToggle('lazyLoad', ['performance', 'lazyLoad']);
+    this.bindToggle('cacheEnabled', ['performance', 'cacheEnabled']);
+    this.bindNumber('debounceMs', ['performance', 'debounceMs']);
+    this.bindToggle('useML', ['performance', 'useML']);
     this.bindToggle('autoUpdate', ['updates', 'autoUpdate']);
-    this.bindToggle('debugMode', 'debug');
+    this.bindToggle('debugMode', 'debugMode');
 
     // Whitelist Management
     this.setupWhitelistEditor();
@@ -187,9 +192,11 @@ class OptionsPage {
 
     // Import/Export
     document.getElementById('exportSettings')?.addEventListener('click', () => this.exportSettings());
+    document.getElementById('exportDiagnostics')?.addEventListener('click', () => this.exportDiagnostics());
     document.getElementById('importSettings')?.addEventListener('click', () => this.showImportDialog());
     document.getElementById('resetSettings')?.addEventListener('click', () => this.resetSettings());
     document.getElementById('clearStats')?.addEventListener('click', () => this.clearStats());
+    document.getElementById('clearDiagnostics')?.addEventListener('click', () => this.clearDiagnostics());
 
     // Theme changes
     document.getElementById('theme')?.addEventListener('change', () => {
@@ -276,11 +283,12 @@ class OptionsPage {
     this.setSelectValue('speedMultiplier', String(this.settings.youtube?.speedMultiplier || 16));
 
     // Advanced
-    this.setNumberValue('observerDebounce', this.settings.performance?.observerDebounce);
-    this.setToggleValue('performanceMode', this.settings.performance?.enablePerformanceMode);
-    this.setToggleValue('enableML', this.settings.ml?.enabled);
+    this.setToggleValue('lazyLoad', this.settings.performance?.lazyLoad);
+    this.setToggleValue('cacheEnabled', this.settings.performance?.cacheEnabled);
+    this.setNumberValue('debounceMs', this.settings.performance?.debounceMs);
+    this.setToggleValue('useML', this.settings.performance?.useML);
     this.setToggleValue('autoUpdate', this.settings.updates?.autoUpdate);
-    this.setToggleValue('debugMode', this.settings.debug);
+    this.setToggleValue('debugMode', this.settings.debugMode);
 
     // Whitelist
     this.renderWhitelist();
@@ -1055,6 +1063,10 @@ class OptionsPage {
     if (typeof this.settings.ai.customModelName !== 'string') {
       this.settings.ai.customModelName = '';
     }
+
+    if (typeof this.settings.debugMode !== 'boolean') {
+      this.settings.debugMode = !!this.settings.debug;
+    }
   }
 
   toArrayOrEmpty(value) {
@@ -1163,16 +1175,34 @@ class OptionsPage {
       stats: this.stats
     };
 
+    this.downloadJson(data, `adeclipse-settings-${Date.now()}.json`);
+    this.showToast('Settings exported');
+  }
+
+  downloadJson(data, fileName) {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
 
     const a = document.createElement('a');
     a.href = url;
-    a.download = `adeclipse-settings-${Date.now()}.json`;
+    a.download = fileName;
     a.click();
 
     URL.revokeObjectURL(url);
-    this.showToast('Settings exported');
+  }
+
+  async exportDiagnostics() {
+    try {
+      const diagnostics = await chrome.runtime.sendMessage({
+        type: 'EXPORT_YOUTUBE_DIAGNOSTICS'
+      });
+
+      this.downloadJson(diagnostics, `adeclipse-youtube-diagnostics-${Date.now()}.json`);
+      this.showToast('YouTube diagnostics exported');
+    } catch (error) {
+      console.error('Failed to export diagnostics:', error);
+      this.showToast('Failed to export diagnostics', 'error');
+    }
   }
 
   showImportDialog() {
@@ -1229,6 +1259,20 @@ class OptionsPage {
     } catch (error) {
       console.error('Failed to clear stats:', error);
       this.showToast('Failed to clear statistics', 'error');
+    }
+  }
+
+  async clearDiagnostics() {
+    if (!confirm('Are you sure you want to clear all YouTube diagnostics?')) {
+      return;
+    }
+
+    try {
+      await chrome.runtime.sendMessage({ type: 'CLEAR_YOUTUBE_DIAGNOSTICS' });
+      this.showToast('YouTube diagnostics cleared');
+    } catch (error) {
+      console.error('Failed to clear diagnostics:', error);
+      this.showToast('Failed to clear diagnostics', 'error');
     }
   }
 

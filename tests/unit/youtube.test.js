@@ -187,6 +187,56 @@ describe('YouTube Ad Blocker', () => {
       const hasPromoted = document.querySelector('.ytd-display-ad-renderer');
       expect(hasPromoted).not.toBeNull();
     });
+
+    test('should detect in-player sponsored promo surfaces with skip controls', () => {
+      const player = document.querySelector('#movie_player');
+      const promoSurface = document.createElement('div');
+      promoSurface.className = 'ytp-ad-player-overlay-layout';
+
+      const advertiserLink = document.createElement('a');
+      advertiserLink.className = 'ytp-visit-advertiser-link';
+
+      const skipButton = document.createElement('button');
+      skipButton.className = 'ytp-skip-ad-button';
+
+      promoSurface.appendChild(advertiserLink);
+      promoSurface.appendChild(skipButton);
+      player.appendChild(promoSurface);
+
+      const hasPlayerPromo = player.querySelector(
+        '.ytp-ad-player-overlay-layout, .ytp-visit-advertiser-link, .ytp-skip-ad-button'
+      );
+
+      expect(hasPlayerPromo).not.toBeNull();
+    });
+
+    test('should allow promoted surfaces to be ignored once hidden', () => {
+      const player = document.querySelector('#movie_player');
+      const promoSurface = document.createElement('div');
+      promoSurface.className = 'ytp-ad-player-overlay-layout';
+      promoSurface.setAttribute('aria-hidden', 'true');
+      promoSurface.style.display = 'none';
+
+      const skipButton = document.createElement('button');
+      skipButton.className = 'ytp-skip-ad-button';
+      skipButton.setAttribute('aria-hidden', 'true');
+      skipButton.style.display = 'none';
+
+      player.appendChild(promoSurface);
+      player.appendChild(skipButton);
+
+      const actionablePromo = Array.from(
+        player.querySelectorAll('.ytp-ad-player-overlay-layout, .ytp-skip-ad-button')
+      ).some((node) => {
+        return !node.hidden &&
+          node.getAttribute('aria-hidden') !== 'true' &&
+          node.style.display !== 'none' &&
+          node.style.visibility !== 'hidden' &&
+          node.style.pointerEvents !== 'none';
+      });
+
+      expect(actionablePromo).toBe(false);
+    });
   });
 
   describe('handleAutoplay', () => {

@@ -2,9 +2,89 @@
  * Storage Manager Unit Tests
  */
 
+const { StorageManager } = require('../../src/background/storage.js');
+
 describe('StorageManager', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    chrome.storage.local.get.mockResolvedValue({});
+    chrome.storage.local.set.mockResolvedValue();
+    chrome.storage.local.clear.mockResolvedValue();
+  });
+
+  describe('StorageManager implementation', () => {
+    test('merges stored settings with new defaults for existing installs', async () => {
+      const manager = new StorageManager();
+
+      chrome.storage.local.get.mockResolvedValueOnce({
+        settings: {
+          enabled: false,
+          youtube: {
+            enabled: false
+          },
+          whitelist: ['www.youtube.com']
+        }
+      });
+
+      const settings = await manager.getSettings();
+
+      expect(settings.enabled).toBe(false);
+      expect(settings.youtube.enabled).toBe(false);
+      expect(settings.youtube.useDocumentStartScripts).toBe(true);
+      expect(settings.whitelist).toEqual(['www.youtube.com']);
+      expect(Array.isArray(settings.whitelist)).toBe(true);
+    });
+
+    test('replaces arrays instead of converting them into objects during deep merge', () => {
+      const manager = new StorageManager();
+      const merged = manager.deepMerge(
+        {
+          whitelist: ['example.com'],
+          youtube: {
+            enabled: true,
+            blockMerch: true
+          }
+        },
+        {
+          whitelist: ['www.youtube.com'],
+          youtube: {
+            enabled: false
+          }
+        }
+      );
+
+      expect(merged.whitelist).toEqual(['www.youtube.com']);
+      expect(Array.isArray(merged.whitelist)).toBe(true);
+      expect(merged.youtube).toEqual({
+        enabled: false,
+        blockMerch: true
+      });
+    });
+
+    test('initializeDefaults backfills new settings fields for stored installs', async () => {
+      const manager = new StorageManager();
+
+      chrome.storage.local.get.mockResolvedValueOnce({
+        settings: {
+          enabled: true,
+          youtube: {
+            enabled: true
+          }
+        }
+      });
+
+      await manager.initializeDefaults();
+
+      expect(chrome.storage.local.set).toHaveBeenCalledWith({
+        settings: expect.objectContaining({
+          enabled: true,
+          youtube: expect.objectContaining({
+            enabled: true,
+            useDocumentStartScripts: true
+          })
+        })
+      });
+    });
   });
 
   describe('getSettings', () => {

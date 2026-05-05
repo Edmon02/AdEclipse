@@ -30,7 +30,77 @@
       "*://*.googlevideo.com/*oad=*",
       "*://*.youtube.com/get_midroll_*",
       "*://www.youtube.com/youtubei/v1/player/ad_break*"
-    ]
+    ],
+    "sessionRuleGroups": {
+      "telemetry": [
+        {
+          "urlFilter": "||youtube.com/api/stats/ads",
+          "resourceTypes": ["xmlhttprequest", "ping"],
+          "priority": 6,
+          "settingGate": "trackers"
+        },
+        {
+          "urlFilter": "||youtube.com/ptracking",
+          "resourceTypes": ["xmlhttprequest", "ping", "image"],
+          "priority": 6,
+          "settingGate": "trackers"
+        },
+        {
+          "urlFilter": "||youtube.com/pcs/activeview",
+          "resourceTypes": ["xmlhttprequest", "ping", "image"],
+          "priority": 6,
+          "settingGate": "trackers"
+        },
+        {
+          "urlFilter": "||youtube.com/api/stats/qoe",
+          "resourceTypes": ["xmlhttprequest"],
+          "priority": 5,
+          "settingGate": "trackers"
+        }
+      ],
+      "playerAds": [
+        {
+          "urlFilter": "||youtube.com/pagead/",
+          "resourceTypes": ["xmlhttprequest", "sub_frame", "script", "other"],
+          "priority": 7,
+          "settingGate": "sponsoredContent"
+        },
+        {
+          "urlFilter": "||youtube.com/get_midroll_",
+          "resourceTypes": ["xmlhttprequest"],
+          "priority": 7,
+          "settingGate": "videoAds"
+        },
+        {
+          "urlFilter": "||youtube.com/youtubei/v1/player/ad_break",
+          "resourceTypes": ["xmlhttprequest"],
+          "priority": 7,
+          "settingGate": "videoAds"
+        },
+        {
+          "urlFilter": "||youtube.com/get_video_info",
+          "resourceTypes": ["xmlhttprequest"],
+          "priority": 5,
+          "settingGate": "videoAds"
+        }
+      ],
+      "mediaAds": [
+        {
+          "urlFilter": "||googlevideo.com/videoplayback*ctier=L",
+          "resourceTypes": ["media", "xmlhttprequest"],
+          "requestDomains": ["googlevideo.com"],
+          "priority": 7,
+          "settingGate": "videoAds"
+        },
+        {
+          "urlFilter": "||googlevideo.com/videoplayback*oad=",
+          "resourceTypes": ["media", "xmlhttprequest"],
+          "requestDomains": ["googlevideo.com"],
+          "priority": 7,
+          "settingGate": "videoAds"
+        }
+      ]
+    }
   },
   
   "googleAds": {

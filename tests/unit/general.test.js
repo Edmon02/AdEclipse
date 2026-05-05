@@ -2,6 +2,8 @@
  * General Ad Blocker Unit Tests
  */
 
+const { URL: NodeURL } = require('url');
+
 describe('General Ad Blocker', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
@@ -110,7 +112,7 @@ describe('General Ad Blocker', () => {
       
       const allExternal = Array.from(links).every(link => {
         try {
-          const url = new URL(link.href);
+          const url = new NodeURL(link.href);
           return !url.hostname.includes(hostname);
         } catch {
           return false;
@@ -121,11 +123,12 @@ describe('General Ad Blocker', () => {
     });
 
     test('should detect ad-like text content', () => {
-      const adKeywords = ['sponsored', 'advertisement', 'ad', 'promo', 'partner'];
+      const adKeywords = ['advertisement', 'sponsored', 'ad choices', 'adchoices'];
       
       const testCases = [
         { text: 'Sponsored Content', expected: true },
         { text: 'Advertisement', expected: true },
+        { text: 'Ad Choices available here', expected: true },
         { text: 'Regular article content', expected: false },
         { text: 'News headline', expected: false }
       ];

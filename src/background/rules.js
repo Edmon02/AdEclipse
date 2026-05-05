@@ -90,6 +90,9 @@ export class RulesManager {
     const siteKey = siteMappings[hostname];
     if (siteKey && this.selectors[siteKey]) {
       result.site = this.selectors[siteKey];
+      if (siteKey === 'youtube') {
+        result.surfaceSelectors = this.getYouTubeSurfaceSelectors();
+      }
     }
 
     // Check for pattern match in custom rules
@@ -102,6 +105,29 @@ export class RulesManager {
     }
 
     return result;
+  }
+
+  getYouTubeSurfaceSelectors() {
+    const youtube = this.selectors?.youtube;
+    const selectors = youtube?.selectors || {};
+    const unique = (items) => [...new Set((items || []).filter(Boolean))];
+
+    return {
+      watchPlayer: unique([...(selectors.videoAds || []), ...(selectors.overlayAds || [])]),
+      watchFeed: unique([...(selectors.sponsoredContent || []), ...(selectors.feedAds || [])]),
+      search: unique([
+        ...(selectors.sponsoredContent || []).filter((selector) => selector.includes('search') || selector.includes('movie')),
+        'ytd-search-pyv-renderer'
+      ]),
+      shorts: unique(selectors.shortsFeed || []),
+      sidebar: unique(selectors.sidebar || []),
+      dialogs: unique((selectors.overlayAds || []).filter((selector) => selector.includes('dialog') || selector.includes('enforcement'))),
+      premiumUpsell: unique(selectors.premiumUpsell || [])
+    };
+  }
+
+  getYouTubeSessionRuleConfig() {
+    return this.domains?.youtube?.sessionRuleGroups || {};
   }
 
   /**

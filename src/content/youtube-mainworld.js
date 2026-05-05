@@ -67,6 +67,51 @@
     'searchPyv'
   ];
 
+  const DIAGNOSTIC_MESSAGE_TYPE = 'ADECLIPSE_YOUTUBE_DIAGNOSTIC';
+  const diagnosticTimestamps = new Map();
+
+  const getPageType = () => {
+    const path = window.location.pathname || '';
+
+    if (path.startsWith('/watch')) return 'watch';
+    if (path.startsWith('/shorts')) return 'shorts';
+    if (path.startsWith('/results')) return 'search';
+    if (path.startsWith('/feed')) return 'feed';
+    return 'browse';
+  };
+
+  const sanitizeUrl = (url) => {
+    try {
+      const parsed = new URL(url, window.location.origin);
+      return parsed.origin + parsed.pathname;
+    } catch (_) {
+      return String(url || '').slice(0, 180);
+    }
+  };
+
+  const reportDiagnostic = (type, payload = {}) => {
+    try {
+      const dedupeKey = [type, payload.signal || '', payload.dedupeKey || ''].join('|');
+      const now = Date.now();
+      const previous = diagnosticTimestamps.get(dedupeKey) || 0;
+
+      if (now - previous < 15000) return;
+      diagnosticTimestamps.set(dedupeKey, now);
+
+      window.postMessage({
+        type: DIAGNOSTIC_MESSAGE_TYPE,
+        payload: {
+          source: 'youtube-mainworld',
+          type,
+          signal: payload.signal || '',
+          pageType: getPageType(),
+          url: window.location.href,
+          details: payload.details || {}
+        }
+      }, '*');
+    } catch (_) { }
+  };
+
   const isTargetYoutubeiRequest = (url) => (
     url.includes('/youtubei/v1/player') ||
     url.includes('/youtubei/v1/next') ||
@@ -75,19 +120,57 @@
     url.includes('/youtubei/v1/ad_break')
   );
 
-  const cleanseObject = (obj, seen = new WeakSet()) => {
+  const isUnknownAdLikeKey = (key) => {
+    const lower = String(key || '').toLowerCase();
+    if (!lower) return false;
+    if (!(lower.includes('ad') || lower.includes('promoted') || lower.includes('sponsor'))) return false;
+
+    return !AD_KEYS.some((knownKey) => knownKey.toLowerCase() === lower);
+  };
+
+  const getValueType = (value) => {
+    if (Array.isArray(value)) return 'array';
+    if (value === null) return 'null';
+    return typeof value;
+  };
+
+  const recordUnknownKey = (diagnostics, key, path, value) => {
+    if (!diagnostics || diagnostics.unknownKeys.length >= 8) return;
+    if (!isUnknownAdLikeKey(key)) return;
+
+    const keyPath = path.concat(key).slice(-4).join('.');
+    if (diagnostics.unknownKeySet.has(keyPath)) return;
+
+    diagnostics.unknownKeySet.add(keyPath);
+    diagnostics.unknownKeys.push({
+      key,
+      path: path.slice(-3).join('.'),
+      valueType: getValueType(value)
+    });
+  };
+
+  const cleanseObject = (obj, diagnostics, seen = new WeakSet(), path = []) => {
     if (!obj || typeof obj !== 'object') return obj;
     if (seen.has(obj)) return obj;
     seen.add(obj);
 
     if (Array.isArray(obj)) {
-      for (const item of obj) cleanseObject(item, seen);
+      for (const item of obj) cleanseObject(item, diagnostics, seen, path);
       return obj;
     }
 
+    Object.entries(obj).forEach(([key, value]) => {
+      recordUnknownKey(diagnostics, key, path, value);
+    });
+
     // Delete known ad keys
     for (const key of AD_KEYS) {
-      if (key in obj) delete obj[key];
+      if (key in obj) {
+        delete obj[key];
+        if (diagnostics && !diagnostics.removedKeys.includes(key)) {
+          diagnostics.removedKeys.push(key);
+        }
+      }
     }
 
     if (Array.isArray(obj.adPlacements)) obj.adPlacements = [];
@@ -116,8 +199,32 @@
       }
     }
 
-    for (const value of Object.values(obj)) {
-      cleanseObject(value, seen);
+    Object.entries(obj).forEach(([key, value]) => {
+      cleanseObject(value, diagnostics, seen, path.concat(key));
+    });
+
+    return obj;
+  };
+
+  const sanitizePayload = (obj, context) => {
+    const diagnostics = {
+      removedKeys: [],
+      unknownKeys: [],
+      unknownKeySet: new Set()
+    };
+
+    cleanseObject(obj, diagnostics);
+
+    if (diagnostics.unknownKeys.length > 0) {
+      reportDiagnostic('sanitizer-unknown-keys', {
+        signal: context.signal,
+        dedupeKey: context.signal + ':' + diagnostics.unknownKeys.map((entry) => entry.key).join(','),
+        details: {
+          requestUrl: sanitizeUrl(context.requestUrl || window.location.href),
+          removedKeys: diagnostics.removedKeys.slice(0, 10),
+          unknownKeys: diagnostics.unknownKeys
+        }
+      });
     }
 
     return obj;
@@ -139,12 +246,18 @@
   const patchInitialResponse = () => {
     try {
       if (window.ytInitialPlayerResponse) {
-        cleanseObject(window.ytInitialPlayerResponse);
+        sanitizePayload(window.ytInitialPlayerResponse, {
+          signal: 'initial-player-response',
+          requestUrl: window.location.href
+        });
       }
     } catch (_) { }
     try {
       if (window.ytInitialData) {
-        cleanseObject(window.ytInitialData);
+        sanitizePayload(window.ytInitialData, {
+          signal: 'initial-data',
+          requestUrl: window.location.href
+        });
       }
     } catch (_) { }
   };
@@ -158,7 +271,10 @@
           return current;
         },
         set(value) {
-          current = cleanseObject(value);
+          current = sanitizePayload(value, {
+            signal: 'player-response-setter',
+            requestUrl: window.location.href
+          });
         }
       });
     } catch (_) { }
@@ -173,7 +289,10 @@
           return currentData;
         },
         set(value) {
-          currentData = cleanseObject(value);
+          currentData = sanitizePayload(value, {
+            signal: 'initial-data-setter',
+            requestUrl: window.location.href
+          });
         }
       });
     } catch (_) { }
@@ -191,7 +310,10 @@
         if (!contentType.includes('application/json')) return response;
 
         const json = await response.clone().json();
-        cleanseObject(json);
+        sanitizePayload(json, {
+          signal: 'fetch:' + url.split('/').pop(),
+          requestUrl: url
+        });
         return buildJsonResponse(json, response);
       } catch (_) {
         return response;
@@ -215,7 +337,10 @@
           try {
             if (typeof this.responseText !== 'string' || !this.responseText) return;
             const parsed = JSON.parse(this.responseText);
-            cleanseObject(parsed);
+            sanitizePayload(parsed, {
+              signal: 'xhr:' + this.__adeclipseUrl.split('/').pop(),
+              requestUrl: this.__adeclipseUrl
+            });
             const serialized = JSON.stringify(parsed);
 
             try {

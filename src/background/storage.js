@@ -27,6 +27,10 @@ const DEFAULT_SETTINGS = {
     autoSkip: true,
     speedUpAds: true,
     muteAds: true,
+    useDocumentStartScripts: true,
+    diagnosticsEnabled: true,
+    diagnosticsMaxEntries: 120,
+    sessionRuleProfile: 'balanced',
     blockOverlays: true,
     blockMasthead: true,
     blockSponsored: true,
@@ -105,7 +109,7 @@ export class StorageManager {
 
     try {
       const result = await chrome.storage.local.get('settings');
-      this.cache = result.settings || DEFAULT_SETTINGS;
+      this.cache = this.deepMerge(DEFAULT_SETTINGS, result.settings || {});
       this.lastCacheTime = now;
       return this.cache;
     } catch (error) {
@@ -136,8 +140,10 @@ export class StorageManager {
   async initializeDefaults() {
     try {
       const existing = await chrome.storage.local.get('settings');
-      if (!existing.settings) {
-        await chrome.storage.local.set({ settings: DEFAULT_SETTINGS });
+      const merged = this.deepMerge(DEFAULT_SETTINGS, existing.settings || {});
+
+      if (!existing.settings || JSON.stringify(existing.settings) !== JSON.stringify(merged)) {
+        await chrome.storage.local.set({ settings: merged });
       }
     } catch (error) {
       console.error('[StorageManager] Error initializing defaults:', error);
@@ -216,10 +222,20 @@ export class StorageManager {
    * Deep merge helper
    */
   deepMerge(target, source) {
+    if (Array.isArray(source)) {
+      return source.slice();
+    }
+
+    if (!this.isMergeableObject(target) || !this.isMergeableObject(source)) {
+      return source;
+    }
+
     const output = { ...target };
 
     for (const key of Object.keys(source)) {
-      if (source[key] instanceof Object && key in target) {
+      if (Array.isArray(source[key])) {
+        output[key] = source[key].slice();
+      } else if (this.isMergeableObject(source[key]) && this.isMergeableObject(target[key])) {
         output[key] = this.deepMerge(target[key], source[key]);
       } else {
         output[key] = source[key];
@@ -227,5 +243,9 @@ export class StorageManager {
     }
 
     return output;
+  }
+
+  isMergeableObject(value) {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
   }
 }
