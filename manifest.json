@@ -70,17 +70,6 @@
     ]
   },
   
-  "web_accessible_resources": [
-    {
-      "resources": [
-        "rules/*.json",
-        "src/content/*.js",
-        "src/content/*.css"
-      ],
-      "matches": ["<all_urls>"]
-    }
-  ],
-  
   "minimum_chrome_version": "111",
   
   "browser_specific_settings": {

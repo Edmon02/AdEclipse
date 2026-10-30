@@ -45,69 +45,6 @@
     }
   },
   {
-    "id": 6,
-    "priority": 2,
-    "action": { "type": "block" },
-    "condition": {
-      "urlFilter": "*://*.youtube.com/api/stats/ads*",
-      "resourceTypes": ["xmlhttprequest", "ping"]
-    }
-  },
-  {
-    "id": 7,
-    "priority": 2,
-    "action": { "type": "block" },
-    "condition": {
-      "urlFilter": "*://*.youtube.com/pagead/*",
-      "resourceTypes": ["script", "image", "xmlhttprequest", "sub_frame", "media"]
-    }
-  },
-  {
-    "id": 8,
-    "priority": 2,
-    "action": { "type": "block" },
-    "condition": {
-      "urlFilter": "*://*.youtube.com/ptracking*",
-      "resourceTypes": ["xmlhttprequest", "ping", "image"]
-    }
-  },
-  {
-    "id": 9,
-    "priority": 2,
-    "action": { "type": "block" },
-    "condition": {
-      "urlFilter": "*://*.youtube.com/get_midroll_*",
-      "resourceTypes": ["xmlhttprequest"]
-    }
-  },
-  {
-    "id": 10,
-    "priority": 2,
-    "action": { "type": "block" },
-    "condition": {
-      "urlFilter": "*://www.youtube.com/youtubei/v1/player/ad_break*",
-      "resourceTypes": ["xmlhttprequest"]
-    }
-  },
-  {
-    "id": 11,
-    "priority": 3,
-    "action": { "type": "block" },
-    "condition": {
-      "urlFilter": "*://*.googlevideo.com/*ctier=L*",
-      "resourceTypes": ["media", "xmlhttprequest"]
-    }
-  },
-  {
-    "id": 12,
-    "priority": 3,
-    "action": { "type": "block" },
-    "condition": {
-      "urlFilter": "*://*.googlevideo.com/*oad=*",
-      "resourceTypes": ["media", "xmlhttprequest"]
-    }
-  },
-  {
     "id": 13,
     "priority": 1,
     "action": { "type": "block" },
@@ -897,42 +834,6 @@
     "condition": {
       "urlFilter": "*://*.adobedtm.com/*",
       "resourceTypes": ["script", "image", "xmlhttprequest"]
-    }
-  },
-  {
-    "id": 101,
-    "priority": 2,
-    "action": { "type": "block" },
-    "condition": {
-      "urlFilter": "*://*.youtube.com/api/stats/atr*",
-      "resourceTypes": ["xmlhttprequest", "ping", "image"]
-    }
-  },
-  {
-    "id": 102,
-    "priority": 2,
-    "action": { "type": "block" },
-    "condition": {
-      "urlFilter": "*://*.youtube.com/api/stats/qoe*oad=*",
-      "resourceTypes": ["xmlhttprequest", "ping"]
-    }
-  },
-  {
-    "id": 103,
-    "priority": 3,
-    "action": { "type": "block" },
-    "condition": {
-      "urlFilter": "*://*.googlevideo.com/videoplayback*&ctier=L*",
-      "resourceTypes": ["media", "xmlhttprequest"]
-    }
-  },
-  {
-    "id": 104,
-    "priority": 2,
-    "action": { "type": "block" },
-    "condition": {
-      "urlFilter": "*://*.youtube.com/youtubei/v1/log_event*",
-      "resourceTypes": ["xmlhttprequest", "ping"]
     }
   }
 ]

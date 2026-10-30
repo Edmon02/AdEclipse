@@ -7,6 +7,7 @@
 import { StorageManager } from './storage.js';
 import { StatsTracker } from './stats.js';
 import { RulesManager } from './rules.js';
+import { YT_SCRIPT_IDS, buildYouTubeScripts, youtubeTabActive } from './youtube-scripts.js';
 
 // Initialize managers
 const storage = new StorageManager();
@@ -42,6 +43,7 @@ async function initialize() {
 
     // Sync declarative rules based on enabled state
     await syncDeclarativeRules(settings.enabled);
+    await syncYouTubeScripts(settings);
 
     // Set up alarms for periodic tasks
     setupAlarms();
@@ -110,10 +112,28 @@ async function handleMessage(message, sender) {
       await storage.updateSettings(data);
       const updatedSettings = await storage.getSettings();
       await syncDeclarativeRules(updatedSettings.enabled);
+      await syncYouTubeScripts(updatedSettings);
       await updateBadge();
       return { success: true };
-    
+
+    // Options page uses these names. Without them its off switch never reaches storage.
+    case 'getSettings':
+      return await storage.getSettings();
+
+    case 'saveSettings': {
+      if (!message.settings || typeof message.settings !== 'object') {
+        return { success: false, error: 'Missing settings' };
+      }
+      await storage.updateSettings(message.settings);
+      const saved = await storage.getSettings();
+      await syncDeclarativeRules(saved.enabled);
+      await syncYouTubeScripts(saved);
+      await updateBadge();
+      return { success: true };
+    }
+
     case 'GET_STATS':
+    case 'getStats':
       return await stats.getStats();
     
     case 'INCREMENT_BLOCKED':
@@ -164,9 +184,11 @@ async function handleMessage(message, sender) {
     
     case 'IMPORT_SETTINGS':
       await storage.importAll(data);
+      await syncYouTubeScripts(await storage.getSettings());
       return { success: true };
     
     case 'RESET_STATS':
+    case 'clearStats':
       await stats.reset();
       return { success: true };
     
@@ -201,6 +223,7 @@ async function toggleSiteBlocking(hostname, enabled) {
   }
   
   await storage.updateSettings({ whitelist: settings.whitelist });
+  await syncYouTubeScripts(await storage.getSettings());
   return { success: true, whitelist: settings.whitelist };
 }
 
@@ -245,6 +268,108 @@ async function syncDeclarativeRules(enabled) {
   } catch (error) {
     log.error('Failed to toggle declarative rules:', error);
   }
+}
+
+let ytScriptSync = Promise.resolve();
+
+const YT_CSS = ['src/content/youtube.css'];
+const YT_MAIN = ['src/content/youtube-mainworld.js'];
+const YT_ISOLATED = ['src/content/youtube.js'];
+
+function releaseYouTubePage() {
+  document.dispatchEvent(new CustomEvent('yt-player-ctl', { detail: 'release' }));
+}
+
+function youtubeHooksActive() {
+  return !!(window.ytPlayerCtl && window.ytPlayerCtl.active);
+}
+
+/**
+ * Registered scripts only affect the next navigation. YouTube is a single
+ * page, so an open tab keeps the wrappers until we tell that page to let go.
+ */
+async function settleYouTubeTab(tab, active) {
+  if (!tab || tab.id == null) return;
+  const target = { tabId: tab.id };
+  if (!active) {
+    try {
+      await chrome.scripting.executeScript({ target, world: 'MAIN', func: releaseYouTubePage });
+    } catch (error) {
+      log.debug('YouTube release failed', error);
+    }
+    for (let i = 0; i < 4; i++) {
+      try {
+        await chrome.scripting.removeCSS({ target, files: YT_CSS });
+      } catch (error) {
+        break;
+      }
+    }
+    return;
+  }
+
+  let already = false;
+  try {
+    const [probe] = await chrome.scripting.executeScript({
+      target,
+      world: 'MAIN',
+      func: youtubeHooksActive
+    });
+    already = !!(probe && probe.result);
+  } catch (error) {
+    log.debug('YouTube probe failed', error);
+  }
+  if (already) return;
+
+  try {
+    await chrome.scripting.executeScript({ target, world: 'MAIN', files: YT_MAIN });
+  } catch (error) {
+    log.debug('YouTube main inject failed', error);
+  }
+  try {
+    await chrome.scripting.executeScript({ target, files: YT_ISOLATED });
+  } catch (error) {
+    log.debug('YouTube fallback inject failed', error);
+  }
+  try {
+    await chrome.scripting.insertCSS({ target, files: YT_CSS });
+  } catch (error) {
+    log.debug('YouTube CSS inject failed', error);
+  }
+}
+
+async function settleOpenYouTubeTabs(settings) {
+  let tabs = [];
+  try {
+    tabs = await chrome.tabs.query({ url: ['*://*.youtube.com/*', '*://youtube.com/*'] });
+  } catch (error) {
+    log.error('Failed to query YouTube tabs:', error);
+    return;
+  }
+  await Promise.all(tabs.map((tab) => settleYouTubeTab(tab, youtubeTabActive(settings, tab.url))));
+}
+
+/**
+ * Re-register YouTube content scripts to match current settings.
+ * Calls are serialized so concurrent settings updates cannot collide on ids.
+ */
+function syncYouTubeScripts(settings) {
+  ytScriptSync = ytScriptSync.then(async () => {
+    try {
+      const registered = await chrome.scripting.getRegisteredContentScripts({ ids: YT_SCRIPT_IDS });
+      if (registered.length) {
+        await chrome.scripting.unregisterContentScripts({ ids: registered.map(s => s.id) });
+      }
+      const scripts = buildYouTubeScripts(settings);
+      if (scripts.length) {
+        await chrome.scripting.registerContentScripts(scripts);
+      }
+      await settleOpenYouTubeTabs(settings);
+      log.debug('YouTube scripts', scripts.length ? 'registered' : 'unregistered');
+    } catch (error) {
+      log.error('Failed to sync YouTube scripts:', error);
+    }
+  });
+  return ytScriptSync;
 }
 
 /**
@@ -294,43 +419,19 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
         );
       }
 
-      // Only inject scripts when the extension is enabled for this site
-      if (isEnabled) {
-        if (isYouTube && settings.youtube?.enabled !== false) {
-          // Inject YouTube main-world script
-          chrome.scripting.executeScript({
-            target: { tabId, allFrames: true },
-            files: ['src/content/youtube-mainworld.js'],
-            world: 'MAIN',
-            injectImmediately: true
-          }).catch(() => {});
+      // YouTube is handled by registered document_start scripts (syncYouTubeScripts)
+      if (isEnabled && !isYouTube) {
+        chrome.scripting.insertCSS({
+          target: { tabId, allFrames: true },
+          files: ['src/content/general.css']
+        }).catch(() => {});
 
-          // Inject YouTube isolated-world script + CSS
-          chrome.scripting.insertCSS({
-            target: { tabId, allFrames: true },
-            files: ['src/content/youtube.css']
-          }).catch(() => {});
+        chrome.scripting.executeScript({
+          target: { tabId, allFrames: true },
+          files: ['src/content/general.js'],
+          injectImmediately: true
+        }).catch(() => {});
 
-          chrome.scripting.executeScript({
-            target: { tabId, allFrames: true },
-            files: ['src/content/youtube.js'],
-            injectImmediately: true
-          }).catch(() => {});
-        } else if (!isYouTube) {
-          // Inject general ad-blocking CSS + JS for non-YouTube sites
-          chrome.scripting.insertCSS({
-            target: { tabId, allFrames: true },
-            files: ['src/content/general.css']
-          }).catch(() => {});
-
-          chrome.scripting.executeScript({
-            target: { tabId, allFrames: true },
-            files: ['src/content/general.js'],
-            injectImmediately: true
-          }).catch(() => {});
-        }
-
-        // Inject anti-adblock on all sites
         chrome.scripting.executeScript({
           target: { tabId, allFrames: true },
           files: ['src/content/anti-adblock.js'],

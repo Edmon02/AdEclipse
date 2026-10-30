@@ -1,12 +1,6 @@
 /* AdEclipse - YouTube Ad Hiding Styles */
 
 /*
- * CRITICAL: Hide the <video> element itself while the player is in ad mode.
- * YouTube toggles "ad-showing" / "ad-interrupting" on #movie_player.
- * This makes ad frames invisible INSTANTLY (zero visual ad content).
- * The real video becomes visible the moment YouTube removes the class.
- */
-/*
  * CRITICAL: Hide the <video> element + spinner while the player is in ad mode.
  * YouTube toggles "ad-showing" / "ad-interrupting" on #movie_player.
  * This makes ad frames invisible INSTANTLY (zero visual ad content).
@@ -37,6 +31,7 @@
 
 /* Immediate hiding of known ad overlay / UI elements */
 .ytp-ad-module,
+.ytp-ad-overlay-container,
 .ytp-ad-overlay-slot,
 .ytp-ad-text-overlay,
 .ytp-ad-image-overlay,
@@ -126,9 +121,12 @@ tp-yt-paper-dialog:has([class*="premium"]),
 html:has(tp-yt-paper-dialog:has(.ytd-enforcement-message-view-model)) tp-yt-iron-overlay-backdrop,
 html:has(tp-yt-paper-dialog:has([class*="premium"])) tp-yt-iron-overlay-backdrop,
 html:has(.ytd-popup-container:has([class*="premium"])) tp-yt-iron-overlay-backdrop,
-html:has(ytd-enforcement-message-view-model) tp-yt-iron-overlay-backdrop {
+html:has(ytd-enforcement-message-view-model) tp-yt-iron-overlay-backdrop,
+html:has(ytd-enforcement-message-view-model) tp-yt-iron-overlay-backdrop.opened {
   display: none !important;
   opacity: 0 !important;
+  visibility: hidden !important;
+  background: transparent !important;
   pointer-events: none !important;
 }
 
@@ -170,11 +168,11 @@ img[src*="/pagead/"] {
   border: 3px solid rgba(255,255,255,0.2);
   border-top-color: rgba(255,255,255,0.8);
   border-radius: 50%;
-  animation: adeclipse-spin 0.8s linear infinite;
+  animation: ytp-spin 0.8s linear infinite;
   z-index: 9999;
   pointer-events: none;
 }
 
-@keyframes adeclipse-spin {
+@keyframes ytp-spin {
   to { transform: rotate(360deg); }
 }

@@ -38,6 +38,7 @@ tmp/
 Thumbs.db
 
 # Editor/IDE files
+youtube_html_files
 .idea/
 .vscode/*
 !.vscode/extensions.json

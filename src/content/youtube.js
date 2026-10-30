@@ -1,63 +1,42 @@
 /**
  * AdEclipse - YouTube Content Script  (ISOLATED world)
  *
- * Eliminates YouTube video ads at the DOM / player-API level.
+ * Fallback for ads that survive the main-world payload cleanse.
  * Works alongside:
- *   youtube-mainworld.js  – strips ad payloads from API responses (MAIN world)
- *   youtube.css            – instant visual hiding via pure CSS
+ *   youtube-mainworld.js  – strips ad pods from player responses (MAIN world)
+ *   youtube.css            – hides ad UI, feed ads, and ad frames
  *
  * Design rules
  * ────────────
  * 1.  The ONLY signal for "ad is playing" is YouTube's own `ad-showing` /
  *     `ad-interrupting` class on `#movie_player`.
- * 2.  While that class is present we:  mute → seek ad to end → click skip.
+ * 2.  While that class is present we mute, seek each ad to its end once its
+ *     duration is known, and click the skip button. Driven by media events,
+ *     never by timers.
  * 3.  We NEVER change video.playbackRate.  Setting 16× caused the real video
  *     to silently fast-forward ~1 min before the class was removed.
- * 4.  The moment the class is removed we restore audio and stop all actions.
- *     We never touch currentTime on the real video.
- * 5.  CSS hides <video> + spinner while ad-showing is present, so the user
- *     sees a brief blank – never ad frames.
- * 6.  Once the ad has been seeked to end, we stop issuing further seeks to
- *     prevent accidentally seeking the real video during source transition.
- * 7.  After ad mode ends, we reset currentTime if it's suspiciously high
- *     (fixes the ~1:07 skip bug).
+ * 4.  The moment the class is removed we restore audio, and put the real
+ *     video back where it was if the ad seek moved it.
+ * 5.  No page-visible globals, DOM ids, or polling. Idle cost is one
+ *     MutationObserver, plus a slow signal so a removed extension lets go.
  */
 (function () {
   'use strict';
 
-  if (window.__ADECLIPSE_YT_LOADED__) return;
-  window.__ADECLIPSE_YT_LOADED__ = true;
+  var CTL = 'yt-player-ctl';
+  if (window.ytPlayerCtl && window.ytPlayerCtl.active) return;
+  var ctlState = { active: true };
+  try {
+    Object.defineProperty(window, 'ytPlayerCtl', {
+      configurable: true,
+      enumerable: false,
+      writable: true,
+      value: ctlState
+    });
+  } catch (e) {}
 
-  /* ── Enabled gate ──────────────────────────────────────────── */
-  /* Ask the background whether the extension is enabled for this  *
-   * site.  If disabled (global OFF or site-whitelisted) we bail   *
-   * out completely – no styles, no observers, no ad skipping.     */
-
-  var extensionEnabled = true; // optimistic default; corrected below
-
-  function checkEnabledAndBoot() {
-    try {
-      chrome.runtime.sendMessage({ type: 'GET_SITE_ENABLED' }, function (res) {
-        if (chrome.runtime.lastError || !res) {
-          // Extension context gone – do nothing
-          return;
-        }
-        extensionEnabled = res.enabled;
-        if (!extensionEnabled) {
-          // Remove any styles we may have already injected
-          var earlyStyle = document.getElementById('adeclipse-yt-early');
-          if (earlyStyle) earlyStyle.remove();
-          return; // stop – don't attach any observers or loops
-        }
-        // Enabled → proceed with full bootstrap
-        bootstrapAdBlocker();
-      });
-    } catch (_) {
-      // If messaging fails, assume disabled to be safe
-    }
-  }
-
-  /* ── Selector constants ──────────────────────────────────────── */
+  var stopped = false;
+  var beatTimer = null;
 
   var SKIP_BTN_SEL =
     '.ytp-skip-ad-button,' +
@@ -68,683 +47,224 @@
     '.videoAdUiSkipButton,' +
     'button[class*="ytp-ad-skip"]';
 
-  var AD_OVERLAY_SEL =
-    '.video-ads,' +
-    '.ytp-ad-module,' +
-    '.ytp-ad-overlay-container,' +
-    '.ytp-ad-text-overlay,' +
-    '.ytp-ad-image-overlay,' +
-    '.ytp-ad-player-overlay,' +
-    '.ytp-ad-player-overlay-layout,' +
-    '.ytp-ad-action-interstitial-slot,' +
-    '.ytp-ad-action-interstitial-background-container,' +
-    '.ytp-ad-progress-list,' +
-    '.ytp-ad-preview-container,' +
-    '.ytp-ad-preview-text,' +
-    '.ytp-ad-simple-ad-badge,' +
-    '.ytp-ad-persistent-progress-bar-container,' +
-    '.ytp-ad-player-overlay-instream-info,' +
-    '.ytp-ad-player-overlay-skip-or-preview,' +
-    '.ytp-ad-visit-advertiser-button,' +
-    '.ad-simple-attributed-string,' +
-    '.ytp-ad-badge__text--clean-player,' +
-    '#player-ads,' +
-    '#player-overlay\\:0,' +
-    '#player-overlay-layout\\:0';
+  var ENFORCEMENT_SEL = 'ytd-enforcement-message-view-model';
 
-  var STATIC_AD_SEL =
-    '#masthead-ad,' +
-    'ytd-display-ad-renderer,' +
-    'ytd-ad-slot-renderer,' +
-    'ytd-promoted-sparkles-web-renderer,' +
-    'ytd-compact-promoted-video-renderer,' +
-    'ytd-merch-shelf-renderer,' +
-    'ytd-in-feed-ad-layout-renderer,' +
-    'ytd-banner-promo-renderer,' +
-    'ytd-video-masthead-ad-v3-renderer,' +
-    'ytd-primetime-promo-renderer,' +
-    'ytd-player-legacy-desktop-watch-ads-renderer,' +
-    'ytd-rich-item-renderer:has(ytd-ad-slot-renderer),' +
-    'ytd-rich-section-renderer:has(ytd-ad-slot-renderer)';
+  var MAX_AD_DURATION = 300;
+  var RESTORE_WINDOW_MS = 5000;
 
-  var BLOCKED_DIALOG_SEL =
-    'tp-yt-paper-dialog:has(.ytd-enforcement-message-view-model),' +
-    'tp-yt-paper-dialog:has([class*="premium"]),' +
-    '.ytd-popup-container:has([class*="premium"]),' +
-    'ytd-enforcement-message-view-model';
+  /* ── State ───────────────────────────────────────────────────── */
 
-  var MODAL_BACKDROP_SEL =
-    'tp-yt-iron-overlay-backdrop,' +
-    'tp-yt-iron-overlay-backdrop.opened,' +
-    'tp-yt-iron-overlay-backdrop[opened]';
+  var player = null;
+  var popupContainer = null;
+  var adVideo = null;
+  var inAd = false;
+  var savedMuted = false;
+  var savedVolume = 1;
+  var realVideoStartTime = 0;
 
-  /* ── Persistent state ────────────────────────────────────────── */
-
-  var adHandling    = false;
-  var adLoopId      = null;
-  var adIntervalId  = null;
-  var savedMuted    = false;
-  var savedVolume   = 1;
-  var adSeekedToEnd = false;
-  var adEndTimestamp = 0;
-  var wasInAdMode   = false;
-  var realVideoStartTime = 0;  // Track where the real video started
-
-  /* ── Authoritative ad check ──────────────────────────────────── */
-
-  function playerInAdMode(player) {
-    return (
-      player.classList.contains('ad-showing') ||
-      player.classList.contains('ad-interrupting')
-    );
+  function playerInAdMode(p) {
+    return p.classList.contains('ad-showing') || p.classList.contains('ad-interrupting');
   }
 
-  /* ── URL timestamp helper ──────────────────────────────────── */
-
-  function getUrlStartTime() {
-    try {
-      var params = new URLSearchParams(window.location.search);
-      var t = params.get('t');
-      if (t) {
-        // Handle formats: "120", "120s", "2m", "1h2m3s"
-        var match = t.match(/(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s?)?$/);
-        if (match) {
-          var h = parseInt(match[1] || '0', 10);
-          var m = parseInt(match[2] || '0', 10);
-          var s = parseInt(match[3] || '0', 10);
-          return h * 3600 + m * 60 + s;
-        }
-      }
-    } catch (_) {}
-    return 0;
-  }
-
-  /* ── Micro-actions ───────────────────────────────────────────── */
-
-  function clickSkipButtons() {
-    document.querySelectorAll(SKIP_BTN_SEL).forEach(function (b) {
-      try { b.click(); } catch (_) {}
-    });
-  }
-
-  function hideAdOverlays() {
-    document.querySelectorAll(AD_OVERLAY_SEL).forEach(function (el) {
-      el.style.setProperty('display', 'none', 'important');
-    });
-  }
-
-  function purgeStaticAds() {
-    document.querySelectorAll(STATIC_AD_SEL).forEach(function (el) {
-      el.remove();
-    });
-  }
-
-  function purgeBlockedYoutubePopups() {
-    var hasBlockedDialog = false;
-
-    document.querySelectorAll(BLOCKED_DIALOG_SEL).forEach(function (el) {
-      hasBlockedDialog = true;
-
-      var dialog = el.closest('tp-yt-paper-dialog') || el;
-      var popupContainer = el.closest('.ytd-popup-container');
-
-      [dialog, popupContainer].forEach(function (node) {
-        if (!node) return;
-        try {
-          if (typeof node.cancel === 'function') node.cancel();
-        } catch (_) {}
-        try {
-          if (typeof node.close === 'function') node.close();
-        } catch (_) {}
-        try { node.removeAttribute('opened'); } catch (_) {}
-        try { node.classList.remove('opened'); } catch (_) {}
-        try { node.style.setProperty('display', 'none', 'important'); } catch (_) {}
-      });
-    });
-
-    if (!hasBlockedDialog) return;
-
-    // Aggressively remove all modal backdrops
-    document.querySelectorAll(MODAL_BACKDROP_SEL).forEach(function (el) {
-      try { el.removeAttribute('opened'); } catch (_) {}
-      try { el.classList.remove('opened'); } catch (_) {}
-      try { el.style.setProperty('display', 'none', 'important'); } catch (_) {}
-      try { el.style.setProperty('pointer-events', 'none', 'important'); } catch (_) {}
-      try { el.style.setProperty('visibility', 'hidden', 'important'); } catch (_) {}
-      try { el.style.setProperty('opacity', '0', 'important'); } catch (_) {}
-      try { el.remove(); } catch (_) {}
-    });
-
-    // Unlock scrolling on html and body - use multiple approaches
-    if (document.body) {
-      try { document.body.style.setProperty('overflow', 'visible', 'important'); } catch (_) {}
-      try { document.body.style.setProperty('pointer-events', 'auto', 'important'); } catch (_) {}
-      try { document.body.style.setProperty('max-height', 'none', 'important'); } catch (_) {}
-      try { document.body.style.setProperty('max-width', 'none', 'important'); } catch (_) {}
+  function clickSkipButton() {
+    var btn = player && player.querySelector(SKIP_BTN_SEL);
+    if (btn) {
+      try { btn.click(); } catch (_) {}
     }
-    try { document.documentElement.style.setProperty('overflow', 'auto', 'important'); } catch (_) {}
-    try { document.documentElement.style.setProperty('pointer-events', 'auto', 'important'); } catch (_) {}
-    try { document.documentElement.style.setProperty('max-height', 'none', 'important'); } catch (_) {}
   }
 
-  /* ── Core: nuke one frame of ad ──────────────────────────────── */
+  /* ── Ad handling ─────────────────────────────────────────────── */
 
-  function nukeAdFrame(player) {
+  function seekAdToEnd() {
+    if (!inAd || !adVideo) return;
+    var dur = adVideo.duration;
+    if (Number.isFinite(dur) && dur > 0 && dur < MAX_AD_DURATION && adVideo.currentTime < dur - 0.05) {
+      adVideo.currentTime = dur;
+    }
+    clickSkipButton();
+  }
+
+  function enterAd() {
     var video = player.querySelector('video');
     if (!video) return;
+    inAd = true;
+    adVideo = video;
 
-    // 1. Mute – user never hears the ad
+    savedMuted = video.muted;
+    savedVolume = video.volume;
+    realVideoStartTime = video.currentTime;
+
     video.muted = true;
+    // Each ad in a pod fires loadedmetadata; durationchange covers late durations
+    video.addEventListener('loadedmetadata', seekAdToEnd, true);
+    video.addEventListener('durationchange', seekAdToEnd, true);
+    seekAdToEnd();
+  }
 
-    // 2. Seek ad video to its end so YouTube advances to next content.
-    //    Guard: only seek videos shorter than 5 minutes (ads are always short).
-    //    Once we've seeked to end, stop issuing further seeks to prevent
-    //    accidentally seeking the real video during the source transition.
-    if (!adSeekedToEnd) {
+  function exitAd() {
+    var video = adVideo;
+    inAd = false;
+    adVideo = null;
+    if (!video) return;
+
+    video.removeEventListener('loadedmetadata', seekAdToEnd, true);
+    video.removeEventListener('durationchange', seekAdToEnd, true);
+    video.muted = savedMuted;
+    video.volume = savedVolume;
+
+    var endedAt = Date.now();
+    var startAt = realVideoStartTime;
+    var restore = function () {
+      if (stopped) return;
+      if (player && playerInAdMode(player)) return;
+      cleanup();
+      if (Date.now() - endedAt > RESTORE_WINDOW_MS) return;
+      // A seek that landed on the real video leaves it parked at its end
       var dur = video.duration;
-      if (Number.isFinite(dur) && dur > 0 && dur < 300 && video.currentTime < dur - 0.01) {
-        video.currentTime = dur;
+      if (Number.isFinite(dur) && dur > 0 && video.currentTime >= dur - 1 && startAt < dur - 1) {
+        video.currentTime = startAt;
       }
-
-      // Check if we've reached the end — fire ended event and stop seeking
-      if (Number.isFinite(dur) && dur > 0 && video.currentTime >= dur - 0.5) {
-        adSeekedToEnd = true;
-        try { video.dispatchEvent(new Event('ended')); } catch (_) {}
+      if (video.paused) {
+        var p = video.play();
+        if (p && typeof p.catch === 'function') p.catch(function () {});
       }
-    }
-
-    // 3. Click all visible skip buttons
-    clickSkipButtons();
-
-    // 4. Hide leftover overlay elements
-    hideAdOverlays();
-    purgeBlockedYoutubePopups();
-  }
-
-  /* ── Ad-loop management ──────────────────────────────────────── */
-
-  function beginAdLoop(player) {
-    if (adLoopId !== null || adIntervalId !== null) return;
-
-    var step = function () {
-      if (!playerInAdMode(player)) {
-        endAdLoop(player);
-        return;
-      }
-      nukeAdFrame(player);
     };
-
-    // setInterval at 16ms for reliable firing even when CSS hides the video
-    // (rAF may be throttled when video has visibility:hidden)
-    adIntervalId = setInterval(function () {
-      step();
-    }, 16);
-
-    // Also keep rAF as secondary mechanism for when the tab is active
-    var rAfStep = function () {
-      if (!playerInAdMode(player)) return;
-      nukeAdFrame(player);
-      adLoopId = requestAnimationFrame(rAfStep);
+    var cleanup = function () {
+      video.removeEventListener('loadeddata', restore, true);
+      video.removeEventListener('playing', restore, true);
+      video.removeEventListener('canplay', restore, true);
     };
-    adLoopId = requestAnimationFrame(rAfStep);
+    video.addEventListener('loadeddata', restore, true);
+    video.addEventListener('playing', restore, true);
+    video.addEventListener('canplay', restore, true);
   }
 
-  function endAdLoop(player) {
-    if (adLoopId !== null) {
-      cancelAnimationFrame(adLoopId);
-      adLoopId = null;
-    }
-    if (adIntervalId !== null) {
-      clearInterval(adIntervalId);
-      adIntervalId = null;
-    }
-
-    wasInAdMode = true;
-    adEndTimestamp = Date.now();
-
-    var video = player.querySelector('video');
-    if (video) {
-      video.muted       = savedMuted;
-      video.volume       = savedVolume;
-      video.playbackRate = 1;   // safety: ensure normal speed
-
-      // Register one-shot listeners to restore the real video's playback position
-      // This fixes both preview watch time and resume functionality
-      var resetDone = false;
-      var resetIfNeeded = function () {
-        if (resetDone) return;
-
-        // Only act within 5 seconds of ad ending
-        if (Date.now() - adEndTimestamp > 5000) {
-          cleanup();
-          return;
-        }
-
-        // If not in ad mode anymore, the real video is now active
-        if (!playerInAdMode(player)) {
-          // Restore the position where the real video started (before the ad)
-          // This preserves resume functionality and fixes preview watch time
-          video.currentTime = realVideoStartTime;
-          resetDone = true;
-          cleanup();
-        }
-      };
-
-      var cleanup = function () {
-        video.removeEventListener('playing', resetIfNeeded, true);
-        video.removeEventListener('loadeddata', resetIfNeeded, true);
-        video.removeEventListener('timeupdate', resetIfNeeded, true);
-        wasInAdMode = false;
-      };
-
-      video.addEventListener('playing', resetIfNeeded, true);
-      video.addEventListener('loadeddata', resetIfNeeded, true);
-      video.addEventListener('timeupdate', resetIfNeeded, true);
-
-      // Autoplay: the ad-skip sequence often leaves the real video paused.
-      // Wait briefly for the real video to load, then trigger play.
-      var ensurePlay = function () {
-        if (playerInAdMode(player)) return;
-        if (video.paused && video.readyState >= 2) {
-          try {
-            var playPromise = video.play();
-            if (playPromise !== undefined) {
-              playPromise.catch(function (error) {
-                // Autoplay was prevented, try clicking play button
-                var playBtn = player.querySelector('.ytp-play-button, button[aria-label="Play"]');
-                if (playBtn) {
-                  try { playBtn.click(); } catch (_) {}
-                }
-              });
-            }
-          } catch (_) {}
-        }
-      };
-
-      // Multiple attempts to ensure playback starts
-      setTimeout(ensurePlay, 50);
-      setTimeout(ensurePlay, 150);
-      setTimeout(ensurePlay, 400);
-      setTimeout(ensurePlay, 1000);
-    }
-
-    adHandling = false;
+  function onPlayerClass() {
+    if (stopped || !player) return;
+    var ad = playerInAdMode(player);
+    if (ad && !inAd) enterAd();
+    else if (!ad && inAd) exitAd();
   }
 
-  /* ── State-change dispatcher ─────────────────────────────────── */
+  /* ── Enforcement dialog ──────────────────────────────────────── */
 
-  function onPlayerStateChange(player) {
-    if (playerInAdMode(player)) {
-      if (!adHandling) {
-        adHandling = true;
-        adSeekedToEnd = false;
+  function closeEnforcementDialog(node) {
+    if (stopped) return;
+    var target = node.matches && node.matches(ENFORCEMENT_SEL)
+      ? node
+      : node.querySelector && node.querySelector(ENFORCEMENT_SEL);
+    if (!target) return;
 
-        // Snapshot audio state BEFORE we mute
-        var video = player.querySelector('video');
-        if (video) {
-          savedMuted  = video.muted;
-          savedVolume = video.volume;
-          // CRITICAL: Save the real video's current position before the ad takes over
-          // This preserves resume functionality and preview watch time
-          realVideoStartTime = video.currentTime;
+    var dialog = target.closest('tp-yt-paper-dialog') || target;
+    try {
+      if (typeof dialog.close === 'function') dialog.close();
+    } catch (_) {}
+    dialog.removeAttribute('opened');
+    dialog.classList.remove('opened');
 
-          // One-shot listener: seek as soon as duration is known
-          var onMeta = function () {
-            video.removeEventListener('loadedmetadata', onMeta, true);
-            if (playerInAdMode(player) && !adSeekedToEnd) {
-              var dur = video.duration;
-              if (Number.isFinite(dur) && dur > 0 && dur < 300) {
-                video.currentTime = dur;
-              }
-            }
-          };
-          video.addEventListener('loadedmetadata', onMeta, true);
+    // The dimmer stays up if only the attribute is cleared; opacity comes from .opened
+    document.querySelectorAll('tp-yt-iron-overlay-backdrop').forEach(function (backdrop) {
+      backdrop.classList.remove('opened');
+      backdrop.removeAttribute('opened');
+      try { backdrop.remove(); } catch (_) {}
+    });
+    [document.documentElement, document.body].forEach(function (el) {
+      if (!el) return;
+      el.classList.remove('no-scroll', 'no-y-scroll');
+      if (el.style.overflow === 'hidden') el.style.overflow = '';
+      if (el.style.overflowY === 'hidden') el.style.overflowY = '';
+    });
+
+    var video = player && player.querySelector('video');
+    if (video && video.paused) {
+      var p = video.play();
+      if (p && typeof p.catch === 'function') p.catch(function () {});
+    }
+  }
+
+  /* ── Single observer ─────────────────────────────────────────── */
+
+  // Until both targets exist the observer also watches the whole document;
+  // after that it only sees player class changes and popup insertions.
+  var discovering = true;
+
+  var observer = new MutationObserver(function (records) {
+    if (stopped) return;
+    var classChanged = false;
+    for (var i = 0; i < records.length; i++) {
+      var r = records[i];
+      if (r.type === 'attributes') {
+        classChanged = true;
+      } else if (!discovering) {
+        for (var j = 0; j < r.addedNodes.length; j++) {
+          if (r.addedNodes[j].nodeType === 1) closeEnforcementDialog(r.addedNodes[j]);
         }
       }
-
-      // Immediate first attempt (don't wait for rAF/interval)
-      nukeAdFrame(player);
-      beginAdLoop(player);
-    } else if (adHandling) {
-      endAdLoop(player);
     }
-  }
+    if (classChanged) onPlayerClass();
+    if (discovering) discover();
+  });
 
-  /* ── Safety: reset playbackRate on any new video load ────────── */
-
-  function attachVideoSafety() {
-    var player = document.querySelector('#movie_player');
+  function discover() {
     if (!player) {
-      setTimeout(attachVideoSafety, 200);
+      player = document.getElementById('movie_player');
+      if (player) {
+        observer.observe(player, { attributes: true, attributeFilter: ['class'] });
+        onPlayerClass();
+      }
+    }
+    if (!popupContainer) {
+      popupContainer = document.querySelector('ytd-popup-container');
+    }
+    if (player && popupContainer) {
+      discovering = false;
+      observer.disconnect();
+      observer.observe(player, { attributes: true, attributeFilter: ['class'] });
+      observer.observe(popupContainer, { childList: true, subtree: true });
+      if (document.body) observer.observe(document.body, { childList: true });
+      // The wall may already be open by the time the popup container exists
+      var existing = popupContainer.querySelector(ENFORCEMENT_SEL);
+      if (existing) closeEnforcementDialog(existing);
+    }
+  }
+
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+  discover();
+
+  function shutdown() {
+    if (stopped) return;
+    stopped = true;
+    ctlState.active = false;
+    if (beatTimer) {
+      clearTimeout(beatTimer);
+      beatTimer = null;
+    }
+    try { observer.disconnect(); } catch (e) {}
+    if (adVideo) {
+      try {
+        adVideo.muted = savedMuted;
+        adVideo.volume = savedVolume;
+      } catch (e2) {}
+    }
+    inAd = false;
+    try { delete window.ytPlayerCtl; } catch (e3) {}
+  }
+
+  function beat() {
+    if (stopped) return;
+    var alive = false;
+    try { alive = !!(chrome.runtime && chrome.runtime.id); } catch (e) { alive = false; }
+    if (!alive) {
+      try { document.dispatchEvent(new CustomEvent(CTL, { detail: 'release' })); } catch (e2) {}
+      shutdown();
       return;
     }
-
-    var video = player.querySelector('video');
-    if (!video) {
-      setTimeout(attachVideoSafety, 200);
-      return;
-    }
-
-    video.addEventListener('loadeddata', function () {
-      if (!playerInAdMode(player)) {
-        if (video.playbackRate !== 1) {
-          video.playbackRate = 1;
-        }
-        // Ensure autoplay after ad skip - multiple attempts
-        if (video.paused && video.readyState >= 2) {
-          try {
-            var playPromise = video.play();
-            if (playPromise !== undefined) {
-              playPromise.catch(function () {
-                // If autoplay fails, try clicking play button
-                setTimeout(function () {
-                  if (video.paused) {
-                    var playBtn = player.querySelector('.ytp-play-button, button[aria-label="Play"]');
-                    if (playBtn) {
-                      try { playBtn.click(); } catch (_) {}
-                    }
-                  }
-                }, 100);
-              });
-            }
-          } catch (_) {}
-        }
-      }
-    }, true);
-
-    video.addEventListener('playing', function () {
-      if (!playerInAdMode(player) && video.playbackRate !== 1) {
-        video.playbackRate = 1;
-      }
-    }, true);
+    try { document.dispatchEvent(new CustomEvent(CTL, { detail: 'beat' })); } catch (e3) {}
+    beatTimer = setTimeout(beat, 1500);
   }
 
-  /* ── Observers & hooks ───────────────────────────────────────── */
-
-  function attachPlayerObserver() {
-    var player = document.querySelector('#movie_player');
-    if (!player) {
-      setTimeout(attachPlayerObserver, 50);
-      return;
-    }
-
-    onPlayerStateChange(player);
-
-    new MutationObserver(function () {
-      onPlayerStateChange(player);
-    }).observe(player, { attributes: true, attributeFilter: ['class'] });
-  }
-
-  function attachBodyObserver() {
-    if (!document.body) {
-      requestAnimationFrame(attachBodyObserver);
-      return;
-    }
-
-    var pending = false;
-    new MutationObserver(function () {
-      if (pending) return;
-      pending = true;
-      queueMicrotask(function () {
-        purgeStaticAds();
-        purgeBlockedYoutubePopups();
-        pending = false;
-      });
-    }).observe(document.body, { childList: true, subtree: true });
-  }
-
-  function attachNavigationHooks() {
-    var handler = function () {
-      purgeStaticAds();
-      purgeBlockedYoutubePopups();
-      var player = document.querySelector('#movie_player');
-      if (player) onPlayerStateChange(player);
-    };
-
-    window.addEventListener('yt-navigate-finish', handler, true);
-    window.addEventListener('popstate', handler, true);
-  }
-
-  function startSafetyPoll() {
-    setInterval(function () {
-      purgeStaticAds();
-      purgeBlockedYoutubePopups();
-
-      // Ensure scrolling is always enabled (prevent YouTube from re-locking it)
-      try {
-        if (document.body && document.body.style.getPropertyValue('overflow') === 'hidden') {
-          document.body.style.setProperty('overflow', 'auto', 'important');
-          document.body.style.setProperty('pointer-events', 'auto', 'important');
-        }
-        if (document.documentElement && document.documentElement.style.getPropertyValue('overflow') === 'hidden') {
-          document.documentElement.style.setProperty('overflow', 'auto', 'important');
-          document.documentElement.style.setProperty('pointer-events', 'auto', 'important');
-        }
-      } catch (_) {}
-
-      var player = document.querySelector('#movie_player');
-      if (player) onPlayerStateChange(player);
-    }, 500);
-  }
-
-  /* ── Early inline style (complements youtube.css) ────────────── */
-
-  function injectEarlyStyle() {
-    var s = document.createElement('style');
-    s.id = 'adeclipse-yt-early';
-    s.textContent =
-      '#movie_player.ad-showing video,' +
-      '#movie_player.ad-interrupting video' +
-      '{visibility:hidden!important}' +
-
-      '#movie_player.ad-showing .ytp-spinner,' +
-      '#movie_player.ad-showing .ytp-spinner-container,' +
-      '#movie_player.ad-interrupting .ytp-spinner,' +
-      '#movie_player.ad-interrupting .ytp-spinner-container' +
-      '{display:none!important}' +
-
-      /* CRITICAL: Force scrolling enabled globally and permanently */
-      'html {' +
-        'overflow:auto!important;' +
-        'overflow-y:scroll!important;' +
-        'height:auto!important;' +
-        'pointer-events:auto!important;' +
-        'scroll-behavior:smooth!important;' +
-      '}' +
-      'body {' +
-        'overflow:visible!important;' +
-        'overflow-y:scroll!important;' +
-        'height:auto!important;' +
-        'max-height:none!important;' +
-        'pointer-events:auto!important;' +
-        'position:static!important;' +
-      '}' +
-      'ytd-rich-grid-renderer {overflow:visible!important}' +
-
-      AD_OVERLAY_SEL + '{display:none!important}';
-
-    (document.head || document.documentElement).appendChild(s);
-  }
-
-  /* ── Aggressive scroll position override ────────────────────────────── */
-
-  function installAggressiveScrollUnlocker() {
-    var lastValidScrollY = 0;
-    var scrollMonitoringActive = true;
-    var isUserScrolling = false;
-    var scrollTimeout;
-
-    // 1. Override window.scroll and window.scrollTo to allow user scrolling
-    var originalScrollTo = window.scrollTo;
-    var originalScroll = window.scroll;
-    var scrollToAllowed = true;
-
-    window.scrollTo = function (x, y) {
-      if (!scrollToAllowed) {
-        // If this is from YouTube trying to reset scroll, ignore it
-        if (typeof y === 'number' && y < lastValidScrollY - 50) {
-          return; // Block YouTube's attempt to scroll back up
-        }
-      }
-      return originalScrollTo.apply(this, arguments);
-    };
-
-    window.scroll = function (x, y) {
-      if (!scrollToAllowed) {
-        if (typeof y === 'number' && y < lastValidScrollY - 50) {
-          return;
-        }
-      }
-      return originalScroll.apply(this, arguments);
-    };
-
-    // 2. Prevent scroll event listeners from canceling scroll
-    var originalAddEventListener = document.addEventListener;
-    document.addEventListener = function (type, listener, options) {
-      if (type === 'scroll') {
-        // Wrap scroll listeners to prevent them from breaking scrolling
-        var wrappedListener = function (e) {
-          try {
-            listener.call(this, e);
-          } catch (_) {}
-        };
-        return originalAddEventListener.call(this, type, wrappedListener, options);
-      }
-      return originalAddEventListener.call(this, type, listener, options);
-    };
-
-    // 3. Real-time scroll position monitoring and correction
-    var scrollMonitor = setInterval(function () {
-      if (!scrollMonitoringActive) return;
-
-      try {
-        var currentScrollY = window.pageYOffset || document.documentElement.scrollTop;
-
-        // If page was scrolled by user, remember this position
-        if (isUserScrolling) {
-          lastValidScrollY = currentScrollY;
-        }
-
-        // If scroll was reset by YouTube (big jump backwards), forcibly restore it
-        if (currentScrollY < lastValidScrollY - 100 && lastValidScrollY > 100) {
-          scrollToAllowed = false;
-          window.scrollTo(0, lastValidScrollY);
-          setTimeout(function () {
-            scrollToAllowed = true;
-          }, 50);
-        } else if (currentScrollY > 0) {
-          lastValidScrollY = currentScrollY;
-        }
-      } catch (_) {}
-    }, 100);
-
-    // 4. Track user scroll events - ALLOW ALL SCROLL METHODS
-    var scrollListener = function () {
-      isUserScrolling = true;
-      clearTimeout(scrollTimeout);
-      scrollTimeout = setTimeout(function () {
-        isUserScrolling = false;
-      }, 150);
-    };
-
-    // Capture scroll on document, window, and body
-    document.addEventListener('scroll', scrollListener, { capture: true, passive: true });
-    window.addEventListener('scroll', scrollListener, { capture: true, passive: true });
-    if (document.body) {
-      document.body.addEventListener('scroll', scrollListener, { capture: true, passive: true });
-    }
-
-    // CRITICAL: Allow wheel scrolling by NOT blocking it
-    // The scroll position monitoring handles YouTube resets, not event blocking
-    document.addEventListener('wheel', function (e) {
-      // Don't prevent wheel - let it scroll naturally
-      // Position monitoring will handle YouTube's reset attempts
-      isUserScrolling = true;
-      clearTimeout(scrollTimeout);
-      scrollTimeout = setTimeout(function () {
-        isUserScrolling = false;
-      }, 150);
-    }, { capture: true, passive: true });
-
-    // 5. Prevent scroll-related CSS from locking
-    var styleMonitor = setInterval(function () {
-      try {
-        ['html', 'body'].forEach(function (selector) {
-          var el = selector === 'html' ? document.documentElement : document.body;
-          if (!el) return;
-
-          // Remove height locks
-          if (el.style.height === '100%' || el.style.height === '100vh') {
-            el.style.setProperty('height', 'auto', 'important');
-          }
-          if (el.style.maxHeight && el.style.maxHeight !== 'none') {
-            el.style.setProperty('max-height', 'none', 'important');
-          }
-
-          // Remove overflow locks
-          if (el.style.overflow === 'hidden') {
-            el.style.setProperty('overflow', selector === 'html' ? 'auto' : 'visible', 'important');
-          }
-
-          // Restore pointer events
-          if (el.style.pointerEvents === 'none') {
-            el.style.setProperty('pointer-events', 'auto', 'important');
-          }
-        });
-      } catch (_) {}
-    }, 200);
-
-    // 6. Force enable scrolling at CSS level permanently
-    var styleSheet = document.createElement('style');
-    styleSheet.id = 'adeclipse-scroll-override';
-    styleSheet.textContent =
-      'html, body { overflow: visible !important; width: 100% !important; height: auto !important; }' +
-      'html { scroll-behavior: smooth !important; }' +
-      'body { overflow-y: scroll !important; position: static !important; }' +
-      /* Block any element trying to prevent scrolling */
-      '[style*="overflow"][style*="hidden"] { overflow: visible !important; }' +
-      '[style*="position"][style*="fixed"] > * { position: relative !important; }';
-
-    (document.head || document.documentElement).appendChild(styleSheet);
-
-    // 7. Monitor modal backdrops in real-time and kill them
-    var backdropKiller = setInterval(function () {
-      try {
-        document.querySelectorAll('tp-yt-iron-overlay-backdrop').forEach(function (backdrop) {
-          if (backdrop.style.display !== 'none') {
-            backdrop.style.setProperty('display', 'none', 'important');
-            backdrop.style.setProperty('pointer-events', 'none', 'important');
-            backdrop.style.setProperty('visibility', 'hidden', 'important');
-          }
-        });
-      } catch (_) {}
-    }, 150);
-
-    // Cleanup function if needed
-    return function cleanup() {
-      scrollMonitoringActive = false;
-      clearInterval(scrollMonitor);
-      clearInterval(styleMonitor);
-      clearInterval(backdropKiller);
-      document.removeEventListener('scroll', scrollListener);
-      window.removeEventListener('scroll', scrollListener);
-    };
-  }
-
-  /* ── Bootstrap ───────────────────────────────────────────────── */
-
-  function bootstrapAdBlocker() {
-    injectEarlyStyle();
-    installAggressiveScrollUnlocker();
-    purgeStaticAds();
-    purgeBlockedYoutubePopups();
-    attachPlayerObserver();
-    attachVideoSafety();
-    attachBodyObserver();
-    attachNavigationHooks();
-    startSafetyPoll();
-  }
-
-  // Gate everything behind the enabled check
-  checkEnabledAndBoot();
+  document.addEventListener(CTL, function (event) {
+    if (event && event.detail === 'release') shutdown();
+  });
+  beatTimer = setTimeout(beat, 1500);
 })();
